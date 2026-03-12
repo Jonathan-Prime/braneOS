@@ -15,3 +15,8 @@ uart_16550 = "0.3"
 spin = "0.9"
 # Linked-list allocator for heap
 linked_list_allocator = "0.10"
+# 8259 PIC (Programmable Interrupt Controller)
+pic8259 = "0.11"
+# PS/2 keyboard decoder
+pc-keyboard = "0.7"
+
