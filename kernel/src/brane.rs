@@ -243,8 +243,14 @@ pub struct BraneManager {
     total_disconnections: u64,
 }
 
+impl Default for BraneManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BraneManager {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const NO_BRANE: Option<BraneInfo> = None;
         const NO_SESSION: Option<BraneSession> = None;
         Self {

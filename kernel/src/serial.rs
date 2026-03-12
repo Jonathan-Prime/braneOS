@@ -32,7 +32,10 @@ pub fn init() {
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {
+        #[cfg(not(test))]
         $crate::serial::_serial_print(format_args!($($arg)*));
+        #[cfg(test)]
+        let _ = format_args!($($arg)*);
     };
 }
 

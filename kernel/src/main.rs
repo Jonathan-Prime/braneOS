@@ -16,6 +16,12 @@
 
 extern crate alloc;
 
+use bootloader_api::{entry_point, BootInfo, BootloaderConfig};
+
+pub const CONFIG: BootloaderConfig = BootloaderConfig::new_default();
+
+entry_point!(kernel_main, config = &CONFIG);
+
 use core::panic::PanicInfo;
 
 // --- Hardware-specific modules (binary-only, not in lib) ---
@@ -26,7 +32,8 @@ mod pic;
 
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::{
-    ai, audit, brane, ipc, memory, module_loader, process, sched, security, serial, syscall,
+    ai, audit, brane, framebuffer, ipc, memory, module_loader, process, sched, security, serial,
+    syscall,
 };
 use brane_os_kernel::{serial_print, serial_println};
 
@@ -47,14 +54,45 @@ use brane_os_kernel::{serial_print, serial_println};
 /// 7. Scheduler (task management)
 ///
 /// After init, the kernel enters a halt loop waiting for interrupts.
-#[no_mangle]
-pub extern "C" fn _start() -> ! {
+fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // --- Banner ---
     serial::init();
     serial_println!("===========================================");
     serial_println!("  Brane OS v0.1 — Kernel Booting");
     serial_println!("===========================================");
     serial_println!();
+
+    // === Phase 1.5: Framebuffer (if available) ===
+    if let Some(fb) = boot_info.framebuffer.as_mut() {
+        let info = fb.info();
+        let pixel_format = match info.pixel_format {
+            bootloader_api::info::PixelFormat::Rgb => framebuffer::PixelFormat::Rgb,
+            bootloader_api::info::PixelFormat::Bgr => framebuffer::PixelFormat::Bgr,
+            bootloader_api::info::PixelFormat::U8 => framebuffer::PixelFormat::U8,
+            _ => framebuffer::PixelFormat::Unknown,
+        };
+
+        let buffer = fb.buffer_mut();
+        let config = framebuffer::FramebufferConfig {
+            buffer_start: buffer.as_mut_ptr() as u64,
+            buffer_len: buffer.len(),
+            width: info.width,
+            height: info.height,
+            stride: info.stride,
+            bytes_per_pixel: info.bytes_per_pixel,
+            pixel_format,
+        };
+        framebuffer::FB_WRITER.lock().init(config);
+
+        // Write to framebuffer
+        use core::fmt::Write;
+        let mut fb_writer = framebuffer::FB_WRITER.lock();
+        let _ = writeln!(fb_writer, "Brane OS v0.1");
+        let _ = writeln!(fb_writer, "Framebuffer: {}x{}", info.width, info.height);
+        let _ = writeln!(fb_writer);
+    } else {
+        serial_println!("[fb]   No framebuffer available (serial only).");
+    }
 
     // === Phase 1: Core Hardware ===
     serial_println!("[boot] Phase 1: Core hardware...");
@@ -202,6 +240,7 @@ pub extern "C" fn _start() -> ! {
         let mut loader = module_loader::MODULE_LOADER.lock();
         loader.load("serial_driver", (0, 1, 0), &[]).ok();
         loader.load("keyboard_driver", (0, 1, 0), &[]).ok();
+        pub const CONFIG: bootloader_api::BootloaderConfig = bootloader_api::BootloaderConfig::new_default();
         loader.load("timer_driver", (0, 1, 0), &[]).ok();
         serial_println!(
             "[mod]  Module loader ready: {} modules registered.",

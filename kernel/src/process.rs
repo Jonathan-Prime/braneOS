@@ -95,8 +95,14 @@ pub struct ProcessTable {
     next_pid: Pid,
 }
 
+impl Default for ProcessTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessTable {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const NONE: Option<Process> = None;
         Self {
             processes: [NONE; MAX_PROCESSES],

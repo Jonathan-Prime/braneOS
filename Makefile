@@ -4,24 +4,25 @@
 
 KERNEL_BIN := target/x86_64-unknown-none/debug/brane_os_kernel
 KERNEL_RELEASE := target/x86_64-unknown-none/release/brane_os_kernel
+BUILD_FLAGS := -Z build-std=core,compiler_builtins,alloc -Z build-std-features=compiler-builtins-mem --target x86_64-unknown-none
 
 .PHONY: build build-release run run-release test fmt clippy clean help
 
 # --- Build -------------------------------------------------------------------
 
 build: ## Build kernel (debug)
-	cargo build
+	cd kernel && cargo build $(BUILD_FLAGS)
 
 build-release: ## Build kernel (release, with LTO)
-	cargo build --release
+	cd kernel && cargo build --release $(BUILD_FLAGS)
 
 # --- Run in QEMU -------------------------------------------------------------
 
 run: build ## Build and run in QEMU (debug)
-	@./tools/qemu_runner/run.sh $(KERNEL_BIN)
+	KERNEL_BIN_PATH=$(KERNEL_BIN) cargo run --package runner
 
 run-release: build-release ## Build and run in QEMU (release)
-	@./tools/qemu_runner/run.sh $(KERNEL_RELEASE)
+	KERNEL_BIN_PATH=$(KERNEL_RELEASE) cargo run --package runner --release
 
 # --- Quality -----------------------------------------------------------------
 
@@ -29,10 +30,11 @@ fmt: ## Format all Rust code
 	cargo fmt --all
 
 clippy: ## Run Clippy lints
-	cargo clippy --all-targets -- -D warnings
+	cd kernel && cargo clippy $(BUILD_FLAGS) -- -D warnings
+	cd runner && cargo clippy --all-targets -- -D warnings
 
 test: ## Run unit tests (host-side)
-	cargo test --target x86_64-apple-darwin
+	cd kernel && cargo test --lib
 
 # --- Housekeeping ------------------------------------------------------------
 

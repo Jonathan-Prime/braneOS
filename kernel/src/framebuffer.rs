@@ -1,0 +1,415 @@
+#![allow(dead_code)]
+// ============================================================
+// Brane OS Kernel — Framebuffer Driver
+// ============================================================
+//
+// Basic text output via the bootloader-provided framebuffer.
+// Falls back gracefully if no framebuffer is available.
+//
+// Provides a simple character-cell renderer with a fixed font.
+//
+// Spec reference: ARCHITECTURE.md §7 (Capa 3 — Drivers)
+// ============================================================
+
+use spin::Mutex;
+
+// -----------------------------------------------------------------------
+// Font — simple 8×16 bitmap (ASCII 0x20–0x7E)
+// -----------------------------------------------------------------------
+
+/// Width of a character cell in pixels.
+pub const CHAR_WIDTH: usize = 8;
+/// Height of a character cell in pixels.
+pub const CHAR_HEIGHT: usize = 16;
+
+// -----------------------------------------------------------------------
+// Framebuffer State
+// -----------------------------------------------------------------------
+
+/// Framebuffer pixel format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFormat {
+    Rgb,
+    Bgr,
+    U8,
+    Unknown,
+}
+
+/// Framebuffer configuration captured at boot.
+#[derive(Debug, Clone, Copy)]
+pub struct FramebufferConfig {
+    pub buffer_start: u64,
+    pub buffer_len: usize,
+    pub width: usize,
+    pub height: usize,
+    pub stride: usize,
+    pub bytes_per_pixel: usize,
+    pub pixel_format: PixelFormat,
+}
+
+/// Text cursor position.
+#[derive(Debug, Clone, Copy)]
+pub struct Cursor {
+    pub col: usize,
+    pub row: usize,
+}
+
+/// State of the framebuffer writer.
+pub struct FramebufferWriter {
+    config: Option<FramebufferConfig>,
+    cursor: Cursor,
+    cols: usize,
+    rows: usize,
+    fg_color: u32,
+    bg_color: u32,
+}
+
+impl FramebufferWriter {
+    const fn new() -> Self {
+        Self {
+            config: None,
+            cursor: Cursor { col: 0, row: 0 },
+            cols: 0,
+            rows: 0,
+            fg_color: 0x00FF_FF00, // bright green
+            bg_color: 0x0010_1020, // dark blue-gray
+        }
+    }
+
+    /// Initialize with framebuffer info from the bootloader.
+    pub fn init(&mut self, config: FramebufferConfig) {
+        self.cols = config.width / CHAR_WIDTH;
+        self.rows = config.height / CHAR_HEIGHT;
+        self.config = Some(config);
+        self.clear();
+
+        crate::serial_println!(
+            "[fb]   Framebuffer: {}x{} ({} cols × {} rows, {:?})",
+            config.width,
+            config.height,
+            self.cols,
+            self.rows,
+            config.pixel_format
+        );
+    }
+
+    /// Whether the framebuffer is available.
+    pub fn is_available(&self) -> bool {
+        self.config.is_some()
+    }
+
+    /// Clear the screen with the background color.
+    pub fn clear(&mut self) {
+        if let Some(config) = self.config {
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(config.buffer_start as *mut u8, config.buffer_len)
+            };
+
+            for y in 0..config.height {
+                for x in 0..config.width {
+                    self.write_pixel_raw(buffer, &config, x, y, self.bg_color);
+                }
+            }
+            self.cursor = Cursor { col: 0, row: 0 };
+        }
+    }
+
+    /// Write a character at the current cursor position.
+    pub fn write_char(&mut self, c: char) {
+        match c {
+            '\n' => self.newline(),
+            '\r' => self.cursor.col = 0,
+            c => {
+                if self.cursor.col >= self.cols {
+                    self.newline();
+                }
+                self.draw_char(c, self.cursor.col, self.cursor.row);
+                self.cursor.col += 1;
+            }
+        }
+    }
+
+    /// Write a string.
+    pub fn write_str(&mut self, s: &str) {
+        for c in s.chars() {
+            self.write_char(c);
+        }
+    }
+
+    fn newline(&mut self) {
+        self.cursor.col = 0;
+        self.cursor.row += 1;
+        if self.cursor.row >= self.rows {
+            self.scroll_up();
+            self.cursor.row = self.rows - 1;
+        }
+    }
+
+    fn scroll_up(&mut self) {
+        if let Some(config) = self.config {
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(config.buffer_start as *mut u8, config.buffer_len)
+            };
+
+            let row_bytes = config.stride * config.bytes_per_pixel * CHAR_HEIGHT;
+            let total_used = row_bytes * self.rows;
+
+            // Move everything up by one text row
+            buffer.copy_within(row_bytes..total_used, 0);
+
+            // Clear the last row
+            let last_row_start = row_bytes * (self.rows - 1);
+            for b in buffer[last_row_start..total_used].iter_mut() {
+                *b = 0;
+            }
+        }
+    }
+
+    fn draw_char(&mut self, c: char, col: usize, row: usize) {
+        if let Some(config) = self.config {
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(config.buffer_start as *mut u8, config.buffer_len)
+            };
+
+            let glyph = get_glyph(c);
+            let px = col * CHAR_WIDTH;
+            let py = row * CHAR_HEIGHT;
+
+            for (dy, &glyph_row) in glyph.iter().enumerate() {
+                for dx in 0..CHAR_WIDTH {
+                    let color = if (glyph_row >> (7 - dx)) & 1 == 1 {
+                        self.fg_color
+                    } else {
+                        self.bg_color
+                    };
+                    self.write_pixel_raw(buffer, &config, px + dx, py + dy, color);
+                }
+            }
+        }
+    }
+
+    fn write_pixel_raw(
+        &self,
+        buffer: &mut [u8],
+        config: &FramebufferConfig,
+        x: usize,
+        y: usize,
+        color: u32,
+    ) {
+        let offset = (y * config.stride + x) * config.bytes_per_pixel;
+        if offset + config.bytes_per_pixel > buffer.len() {
+            return;
+        }
+
+        let (r, g, b) = ((color >> 16) as u8, (color >> 8) as u8, color as u8);
+
+        match config.pixel_format {
+            PixelFormat::Rgb => {
+                buffer[offset] = r;
+                buffer[offset + 1] = g;
+                buffer[offset + 2] = b;
+            }
+            PixelFormat::Bgr => {
+                buffer[offset] = b;
+                buffer[offset + 1] = g;
+                buffer[offset + 2] = r;
+            }
+            _ => {
+                buffer[offset] = g; // grayscale approximation
+            }
+        }
+    }
+}
+
+impl core::fmt::Write for FramebufferWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.write_str(s);
+        Ok(())
+    }
+}
+
+/// Global framebuffer writer.
+pub static FB_WRITER: Mutex<FramebufferWriter> = Mutex::new(FramebufferWriter::new());
+
+// -----------------------------------------------------------------------
+// Built-in 8×16 bitmap font (subset)
+// -----------------------------------------------------------------------
+
+/// Get the 8×16 glyph for a character. Returns a blank for unknowns.
+fn get_glyph(c: char) -> [u8; CHAR_HEIGHT] {
+    match c {
+        ' ' => [0x00; 16],
+        '!' => [
+            0x00, 0x00, 0x18, 0x3C, 0x3C, 0x3C, 0x18, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '.' => [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        ':' => [
+            0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '-' => [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7E, 0x7E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '=' => [
+            0x00, 0x00, 0x00, 0x00, 0x7E, 0x7E, 0x00, 0x00, 0x7E, 0x7E, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '/' => [
+            0x00, 0x00, 0x02, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '0' => [
+            0x00, 0x00, 0x3C, 0x66, 0xC3, 0xC3, 0xDB, 0xDB, 0xC3, 0xC3, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '1' => [
+            0x00, 0x00, 0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x7E, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '2' => [
+            0x00, 0x00, 0x3C, 0x66, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC0, 0xC6, 0xFE, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '3' => [
+            0x00, 0x00, 0x3C, 0x66, 0x06, 0x06, 0x1C, 0x06, 0x06, 0x06, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '4' => [
+            0x00, 0x00, 0x0C, 0x1C, 0x3C, 0x6C, 0xCC, 0xFE, 0x0C, 0x0C, 0x0C, 0x1E, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '5' => [
+            0x00, 0x00, 0xFE, 0xC0, 0xC0, 0xFC, 0x06, 0x06, 0x06, 0x06, 0xC6, 0x7C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '6' => [
+            0x00, 0x00, 0x38, 0x60, 0xC0, 0xFC, 0xC6, 0xC6, 0xC6, 0xC6, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '7' => [
+            0x00, 0x00, 0xFE, 0xC6, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x30, 0x30, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '8' => [
+            0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        '9' => [
+            0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x3E, 0x06, 0x06, 0x0C, 0x18, 0x70, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'A' | 'a' => [
+            0x00, 0x00, 0x10, 0x38, 0x6C, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'B' | 'b' => [
+            0x00, 0x00, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x66, 0x66, 0xFC, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'C' | 'c' => [
+            0x00, 0x00, 0x3C, 0x66, 0xC2, 0xC0, 0xC0, 0xC0, 0xC0, 0xC2, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'D' | 'd' => [
+            0x00, 0x00, 0xF8, 0x6C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x6C, 0xF8, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'E' | 'e' => [
+            0x00, 0x00, 0xFE, 0x66, 0x62, 0x68, 0x78, 0x68, 0x60, 0x62, 0x66, 0xFE, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'F' | 'f' => [
+            0x00, 0x00, 0xFE, 0x66, 0x62, 0x68, 0x78, 0x68, 0x60, 0x60, 0x60, 0xF0, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'G' | 'g' => [
+            0x00, 0x00, 0x3C, 0x66, 0xC2, 0xC0, 0xC0, 0xDE, 0xC6, 0xC6, 0x66, 0x3A, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'H' | 'h' => [
+            0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xC6, 0xFE, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'I' | 'i' => [
+            0x00, 0x00, 0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'K' | 'k' => [
+            0x00, 0x00, 0xE6, 0x66, 0x6C, 0x6C, 0x78, 0x6C, 0x6C, 0x66, 0x66, 0xE6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'L' | 'l' => [
+            0x00, 0x00, 0xF0, 0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x62, 0x66, 0xFE, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'M' | 'm' => [
+            0x00, 0x00, 0xC6, 0xEE, 0xFE, 0xD6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'N' | 'n' => [
+            0x00, 0x00, 0xC6, 0xE6, 0xF6, 0xFE, 0xDE, 0xCE, 0xC6, 0xC6, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'O' | 'o' => [
+            0x00, 0x00, 0x3C, 0x66, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'P' | 'p' => [
+            0x00, 0x00, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x60, 0xF0, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'R' | 'r' => [
+            0x00, 0x00, 0xFC, 0x66, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x66, 0xE6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'S' | 's' => [
+            0x00, 0x00, 0x3C, 0x66, 0x66, 0x60, 0x3C, 0x06, 0x06, 0x66, 0x66, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'T' | 't' => [
+            0x00, 0x00, 0xFF, 0xDB, 0x99, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'U' | 'u' => [
+            0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'V' | 'v' => [
+            0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0xC6, 0x6C, 0x38, 0x10, 0x10, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'W' | 'w' => [
+            0x00, 0x00, 0xC6, 0xC6, 0xC6, 0xC6, 0xD6, 0xD6, 0xFE, 0xEE, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'X' | 'x' => [
+            0x00, 0x00, 0xC6, 0xC6, 0x6C, 0x38, 0x38, 0x38, 0x6C, 0xC6, 0xC6, 0xC6, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'Y' | 'y' => [
+            0x00, 0x00, 0xC3, 0xC3, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'Z' | 'z' => [
+            0x00, 0x00, 0xFE, 0xC6, 0x86, 0x0C, 0x18, 0x30, 0x60, 0xC2, 0xC6, 0xFE, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'J' | 'j' => [
+            0x00, 0x00, 0x1E, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0xCC, 0xCC, 0xCC, 0x78, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        'Q' | 'q' => [
+            0x00, 0x00, 0x3C, 0x66, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xDB, 0x76, 0x3C, 0x06, 0x00,
+            0x00, 0x00,
+        ],
+        _ => [
+            0x00, 0x00, 0xFE, 0x82, 0x82, 0x82, 0x82, 0x82, 0x82, 0x82, 0xFE, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ], // box for unknown
+    }
+}

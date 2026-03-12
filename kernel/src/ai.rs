@@ -122,8 +122,14 @@ pub struct AiEngine {
     actuation_cap: Option<CapabilityId>,
 }
 
+impl Default for AiEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AiEngine {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const NONE: Option<AiInsight> = None;
         Self {
             mode: AiMode::ObserveOnly,

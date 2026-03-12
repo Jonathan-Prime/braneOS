@@ -16,6 +16,7 @@ pub mod serial;
 pub mod ai;
 pub mod audit;
 pub mod brane;
+pub mod framebuffer;
 pub mod ipc;
 pub mod memory;
 pub mod module_loader;

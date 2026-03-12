@@ -24,7 +24,7 @@ pub const HEAP_START: u64 = 0x_4444_4444_0000;
 pub const HEAP_SIZE: u64 = 1024 * 1024;
 
 /// Global allocator used by Rust's `alloc` crate.
-#[global_allocator]
+#[cfg_attr(not(test), global_allocator)]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 /// Initialize the kernel heap.

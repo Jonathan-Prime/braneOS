@@ -104,8 +104,14 @@ pub struct CapabilityManager {
     next_id: CapabilityId,
 }
 
+impl Default for CapabilityManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CapabilityManager {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const NONE: Option<Capability> = None;
         Self {
             capabilities: [NONE; MAX_CAPABILITIES],

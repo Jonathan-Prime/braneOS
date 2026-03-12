@@ -27,11 +27,12 @@ const MAX_MEMORY: usize = 1024 * 1024 * 1024; // 1 GiB
 const MAX_FRAMES: usize = MAX_MEMORY / FRAME_SIZE;
 const BITMAP_SIZE: usize = MAX_FRAMES / 8;
 
+static mut ALLOCATOR_BITMAP: [u8; BITMAP_SIZE] = [0xFF; BITMAP_SIZE];
+
 /// Bitmap-based physical frame allocator.
 ///
 /// Tracks which 4 KiB physical frames are free or allocated.
 pub struct BitmapFrameAllocator {
-    bitmap: [u8; BITMAP_SIZE],
     total_frames: usize,
     free_frames: usize,
 }
@@ -46,9 +47,8 @@ impl BitmapFrameAllocator {
     /// Create a new allocator with all frames marked as used.
     ///
     /// Call `mark_region_free` to mark usable memory regions.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            bitmap: [0xFF; BITMAP_SIZE], // all used by default
             total_frames: MAX_FRAMES,
             free_frames: 0,
         }
@@ -88,7 +88,7 @@ impl BitmapFrameAllocator {
     /// Returns the physical address of the frame, or `None` if OOM.
     pub fn allocate(&mut self) -> Option<u64> {
         for byte_idx in 0..BITMAP_SIZE {
-            if self.bitmap[byte_idx] != 0xFF {
+            if unsafe { ALLOCATOR_BITMAP[byte_idx] } != 0xFF {
                 // This byte has at least one free bit
                 for bit in 0..8 {
                     let frame = byte_idx * 8 + bit;
@@ -127,19 +127,19 @@ impl BitmapFrameAllocator {
     fn is_used(&self, frame: usize) -> bool {
         let byte = frame / 8;
         let bit = frame % 8;
-        self.bitmap[byte] & (1 << bit) != 0
+        unsafe { ALLOCATOR_BITMAP[byte] & (1 << bit) != 0 }
     }
 
     fn set_used(&mut self, frame: usize) {
         let byte = frame / 8;
         let bit = frame % 8;
-        self.bitmap[byte] |= 1 << bit;
+        unsafe { ALLOCATOR_BITMAP[byte] |= 1 << bit };
     }
 
     fn set_free(&mut self, frame: usize) {
         let byte = frame / 8;
         let bit = frame % 8;
-        self.bitmap[byte] &= !(1 << bit);
+        unsafe { ALLOCATOR_BITMAP[byte] &= !(1 << bit) };
     }
 }
 

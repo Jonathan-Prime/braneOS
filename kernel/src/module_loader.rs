@@ -60,8 +60,14 @@ pub struct ModuleLoader {
     next_id: ModuleId,
 }
 
+impl Default for ModuleLoader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModuleLoader {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const NONE: Option<ModuleInfo> = None;
         Self {
             modules: [NONE; MAX_MODULES],
