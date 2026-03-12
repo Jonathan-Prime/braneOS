@@ -25,6 +25,8 @@ mod pic;
 mod keyboard;
 mod memory;
 mod sched;
+mod syscall;
+mod ipc;
 
 // -----------------------------------------------------------------------
 // Kernel Init
@@ -101,6 +103,31 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
+    // === Phase 3: Syscalls & IPC ===
+    serial_println!();
+    serial_println!("[boot] Phase 3: Syscall dispatcher & IPC...");
+
+    // Register a test syscall to verify dispatch
+    let test_ctx = syscall::SyscallContext {
+        number: syscall::SyscallNumber::GetPid as u64,
+        arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+    };
+    let result = syscall::dispatch(&test_ctx);
+    serial_println!("[sys]  Syscall dispatcher ready. Test GetPid => {}", result.to_raw());
+
+    // Test IPC: send a message between tasks
+    {
+        let msg = ipc::IpcMessage::new(
+            1, // sender: init
+            0, // receiver: kernel_idle
+            ipc::MessageType::Notification,
+            b"boot_complete",
+        ).unwrap();
+        let _ = ipc::IPC.lock().send(msg);
+        let pending = ipc::IPC.lock().pending_count(0);
+        serial_println!("[ipc]  IPC core ready. Task 0 has {} pending message(s).", pending);
+    }
+
     // === Summary ===
     serial_println!();
     serial_println!("===========================================");
@@ -109,10 +136,9 @@ pub extern "C" fn _start() -> ! {
     serial_println!();
     serial_println!("  Phase 1: GDT, IDT, PIC          ✓");
     serial_println!("  Phase 2: Memory, Scheduler       ✓");
+    serial_println!("  Phase 3: Syscalls, IPC           ✓");
     serial_println!();
     serial_println!("  Pending:");
-    serial_println!("    - Syscall Dispatcher  (Phase 3)");
-    serial_println!("    - IPC Core            (Phase 3)");
     serial_println!("    - Capability Manager  (Phase 4)");
     serial_println!("    - Audit Hooks         (Phase 4)");
     serial_println!("    - Module Loader       (Phase 4)");
