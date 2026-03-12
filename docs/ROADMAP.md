@@ -1,102 +1,212 @@
 # ROADMAP.md — Brane OS
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
-> Estado: **Activo** — se actualiza conforme el proyecto avanza.
+> Estado: **Activo** — se actualiza conforme el proyecto avanza.  
+> Última actualización: **2026-03-12**
 
 ---
 
 ## Visión general
 
 ```text
-Fase 1          Fase 2          Fase 3         Fase 4          Fase 5         Fase 6
-Boot +          Memoria +       Syscalls +     Servicios       IA             IA actuadora
-Kernel mínimo   Scheduler       IPC            del sistema     observadora    restringida
-───────────────────────────────────────────────────────────────────────────────────────▶
+ ✅ COMPLETADO                                          🔲 PRÓXIMOS PASOS
+ ══════════════════════════════════════════════════════  ══════════════════════════════════════════════════
+ Fase 1    Fase 2      Fase 3     Fase 4     Fase 5   │ Fase 6     Fase 7     Fase 8     Fase 9    Fase 10
+ Boot +    Memoria +   Syscalls + Seguridad  Brane    │ Bootloader Filesystem Networking Brane     Producción
+ Kernel    Scheduler   IPC        Audit, IA  Protocol │ real       + Shell    + Cluster   Protocol  + Release
+ mínimo                           Procesos            │            VFS, TTY   TCP/IP     v2        v1.0
+ ─────────────────────────────────────────────────────┼─────────────────────────────────────────────────▶
 ```
 
 ---
 
-## Fase 1 — Boot y kernel mínimo ◀ ACTUAL
+## ✅ Fase 1 — Boot y kernel mínimo (COMPLETADA)
 
 **Objetivo:** Arrancar en QEMU con salida serial funcional.
 
 | Componente | Estado | Notas |
 |-----------|--------|-------|
-| Estructura del repositorio | ✅ Completo | Per spec §20 |
-| Cargo workspace (no_std) | ✅ Completo | x86_64-unknown-none |
-| Serial output (UART 16550) | ✅ Completo | COM1, macros serial_print!/serial_println! |
-| Boot banner | ✅ Completo | Entry point _start, panic handler |
-| Bootloader / UEFI | 🔲 Pendiente | Decidir boot path |
-| Interrupciones iniciales (IDT) | ✅ Completo | GDT + TSS + IST, IDT con 7 excepciones, PIC 8259 |
-| Keyboard (PS/2) | ✅ Completo | Scancode decoding, salida serial |
-| Makefile + QEMU runner | ✅ Completo | build, run, test, clean |
-| Documentación base | ✅ Completo | Master spec + docs derivados |
+| Estructura del repositorio | ✅ | `kernel/`, `services/`, `drivers/`, `userland/`, `ai/`, `tests/`, `tools/` |
+| Cargo workspace (`no_std`) | ✅ | Target: `x86_64-unknown-none`, nightly toolchain |
+| Serial output (UART 16550) | ✅ | COM1, macros `serial_print!`/`serial_println!` |
+| GDT + TSS + IST | ✅ | Double fault stack aislado |
+| IDT (7 excepciones) | ✅ | Breakpoint, Double Fault, Page Fault, GPF, Invalid Opcode, Segment NP, Stack Fault |
+| PIC 8259 | ✅ | IRQs remapeados a vectores 32–47 |
+| Keyboard (PS/2) | ✅ | Scancode decoding con `pc-keyboard` |
+| Timer interrupt | ✅ | PIT ~18.2 Hz |
+| Makefile + QEMU runner | ✅ | `build`, `run`, `test`, `clean` |
+| GitHub Actions CI | ✅ | Build (debug+release), `rustfmt`, `clippy -D warnings` |
+| Documentación base | ✅ | ARCHITECTURE, SECURITY_MODEL, AI_SUBSYSTEM, ROADMAP, TEST_PLAN |
 
 ---
 
-## Fase 2 — Memoria y Scheduler
+## ✅ Fase 2 — Memoria y Scheduler (COMPLETADA)
 
-**Objetivo:** Heap funcional, paging, y scheduler básico.
+**Objetivo:** Gestión de memoria física e inicio del scheduler.
 
 | Componente | Estado | Notas |
 |-----------|--------|-------|
-| Frame allocator | 🔲 Pendiente | |
-| Page tables | 🔲 Pendiente | |
-| Heap allocator | 🔲 Pendiente | linked_list_allocator |
-| Task struct | 🔲 Pendiente | |
-| Scheduler (round-robin) | 🔲 Pendiente | |
-| Context switching | 🔲 Pendiente | |
+| Frame allocator (bitmap) | ✅ | Soporta hasta 1 GiB, trait `FrameAllocator<Size4KiB>` |
+| Heap allocator | ✅ | `linked_list_allocator`, 1 MiB, `#[global_allocator]` |
+| Scheduler (round-robin) | ✅ | 6 prioridades (Idle→System), 64 tasks max |
 
 ---
 
-## Fase 3 — Syscalls e IPC
+## ✅ Fase 3 — Syscalls e IPC (COMPLETADA)
 
 **Objetivo:** Interfaz kernel/user space y comunicación entre procesos.
 
 | Componente | Estado | Notas |
 |-----------|--------|-------|
-| Syscall dispatcher | 🔲 Pendiente | |
-| Syscalls mínimas | 🔲 Pendiente | write, exit, yield, send, recv |
-| IPC básico | 🔲 Pendiente | Message passing |
-| User mode transition | 🔲 Pendiente | |
+| Syscall dispatcher | ✅ | 24 syscalls, 7 subsistemas (incl. Brane), 10 error codes |
+| Handlers implementados | ✅ | `exit`, `yield`, `getpid`, `write`, `ipc_send`, `ipc_recv`, `get_time`, `get_system_info` |
+| IPC Core | ✅ | Message passing: ring buffer 16 msgs × 4 KiB, 4 tipos (Request, Response, Notification, BraneRelay) |
 
 ---
 
-## Fase 4 — Servicios del sistema
+## ✅ Fase 4 — Seguridad, Auditoría e IA (COMPLETADA)
 
-**Objetivo:** Servicios core funcionando en user space.
+**Objetivo:** Sistema de capacidades, auditoría transversal e IA observadora.
 
 | Componente | Estado | Notas |
 |-----------|--------|-------|
-| init | 🔲 Pendiente | |
-| process_manager | 🔲 Pendiente | |
-| filesystem_service | 🔲 Pendiente | |
-| policy_engine | 🔲 Pendiente | |
-| audit_service | 🔲 Pendiente | |
-| Shell mínima | 🔲 Pendiente | |
+| Capability Manager | ✅ | 9 permisos (incl. `BRANE_CONNECT`), 4 risk levels, 4 scopes, 256 entries |
+| Audit Hooks | ✅ | 14 event types, ring buffer 512, secuenciación monotónica |
+| Module Loader | ✅ | Hot-swap, 32 módulos, dependency tracking |
+| AI Engine | ✅ | 4 modos (Disabled→ActRestricted), 6 categorías, actuación con audit |
+| Process Table | ✅ | PCB, 128 procesos, 7 estados, memory map |
+| Unit Tests | ✅ | 35 tests en 9 módulos |
 
 ---
 
-## Fase 5 — IA observadora
+## ✅ Fase 5 — Brane Protocol (COMPLETADA)
 
-**Objetivo:** Subsistema IA capaz de observar y sugerir.
+**Objetivo:** Interconexión segura con dispositivos externos.
 
 | Componente | Estado | Notas |
 |-----------|--------|-------|
-| context_collector | 🔲 Pendiente | |
-| model_runtime | 🔲 Pendiente | |
-| decision_planner | 🔲 Pendiente | |
-| Reportes y sugerencias | 🔲 Pendiente | |
+| Brane Discovery | ✅ | 16 branes descubribles |
+| Session Manager | ✅ | 8 sesiones simultáneas, autenticación |
+| Message Protocol | ✅ | 11 tipos de mensaje, 2 KiB payload |
+| 3 tipos de brane | ✅ | Companion (móvil), Peer (PC), IoT |
+| 5 transportes | ✅ | TCP/IP, Bluetooth, BLE, USB Direct, Local |
+| Audit integration | ✅ | Conexiones y desconexiones loggeadas |
 
 ---
 
-## Fase 6 — IA actuadora restringida
+## 🔲 Fase 6 — Bootloader Real y Paging (PRÓXIMO)
 
-**Objetivo:** IA capaz de ejecutar acciones limitadas bajo control.
+**Objetivo:** Bootear en hardware real con paging completo.
 
-| Componente | Estado | Notas |
-|-----------|--------|-------|
-| capability_broker | 🔲 Pendiente | |
-| safety_filter | 🔲 Pendiente | |
-| Ejecución limitada | 🔲 Pendiente | |
-| Trazabilidad total | 🔲 Pendiente | |
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| Integrar crate `bootloader` v0.11 | 🔲 | ALTA | UEFI + BIOS legacy boot |
+| Memory map del bootloader | 🔲 | ALTA | Reemplazar regiones simuladas con mapa real |
+| Page Table Manager | 🔲 | ALTA | Recursive/offset page table, map/unmap |
+| Heap init real | 🔲 | ALTA | Conectar heap allocator con page tables |
+| Framebuffer output | 🔲 | MEDIA | Texto en pantalla vía framebuffer |
+| Multiboot2 / UEFI boot | 🔲 | MEDIA | Soporte dual boot |
+
+**Dependencias:** Ninguna (puede iniciar inmediatamente).
+
+---
+
+## 🔲 Fase 7 — Filesystem, Shell y TTY
+
+**Objetivo:** Sistema de archivos virtual, terminal y shell interactiva.
+
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| VFS (Virtual Filesystem) | 🔲 | ALTA | Trait `FileSystem`, mount points |
+| RamFS (in-memory FS) | 🔲 | ALTA | Para boot y testing |
+| TTY driver | 🔲 | ALTA | Terminal virtual via serial + framebuffer |
+| Shell mínima (`brsh`) | 🔲 | ALTA | Comandos: `ls`, `ps`, `cat`, `help`, `brane status` |
+| `initramfs` | 🔲 | MEDIA | Imagen de boot con binarios iniciales |
+| FAT32 / ext2 (lectura) | 🔲 | BAJA | Acceso a discos reales |
+
+**Dependencias:** Fase 6 (page tables para buffers de I/O).
+
+---
+
+## 🔲 Fase 8 — Networking y Clustering
+
+**Objetivo:** Stack de red para comunicación brane real.
+
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| Network driver (virtio-net) | 🔲 | ALTA | Para QEMU/KVM |
+| Ethernet frame parsing | 🔲 | ALTA | L2 |
+| ARP + IPv4 | 🔲 | ALTA | L3 |
+| TCP/UDP | 🔲 | ALTA | L4, `smoltcp` crate |
+| Socket API (syscalls) | 🔲 | ALTA | `socket`, `bind`, `listen`, `accept`, `connect` |
+| DNS resolver | 🔲 | MEDIA | Resolución básica |
+| TLS / Crypto | 🔲 | MEDIA | Para Brane Protocol encriptado |
+| Brane Protocol over TCP | 🔲 | MEDIA | Reemplazar simulación con red real |
+| Cluster discovery (mDNS) | 🔲 | BAJA | Auto-descubrimiento en LAN |
+
+**Dependencias:** Fase 6 (DMA, page tables), Fase 7 (VFS para sockets).
+
+---
+
+## 🔲 Fase 9 — Brane Protocol v2 y Mobile Bridge
+
+**Objetivo:** Protocolo brane real para interconexión con dispositivos.
+
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| Brane handshake criptográfico | 🔲 | ALTA | Ed25519 + X25519 key exchange |
+| Brane session encryption (E2E) | 🔲 | ALTA | ChaCha20-Poly1305 |
+| Capability negotiation protocol | 🔲 | ALTA | Intercambio de caps entre branes |
+| Mobile companion app (API) | 🔲 | MEDIA | REST/WebSocket bridge para iOS/Android |
+| Brane resource sharing | 🔲 | MEDIA | Compartir CPU, storage, sensors |
+| Brane migration | 🔲 | BAJA | Migrar procesos entre branes |
+| IoT sensor protocol | 🔲 | BAJA | Protocolo ligero para dispositivos embebidos |
+
+**Dependencias:** Fase 8 (TCP/IP stack).
+
+---
+
+## 🔲 Fase 10 — Producción, Estabilidad y Release
+
+**Objetivo:** Estabilizar para release v1.0.
+
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| Context switching real | 🔲 | ALTA | Save/restore registros, ring 0 ↔ ring 3 |
+| User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
+| Señales (SIGTERM, SIGKILL, etc.) | 🔲 | ALTA | Signal handling POSIX-like |
+| Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler |
+| ACPI power management | 🔲 | MEDIA | Shutdown, sleep, wake |
+| USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
+| GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
+| Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
+| Test suite completa | 🔲 | ALTA | Integration tests, stress tests, fuzzing |
+| Documentación de API | 🔲 | MEDIA | `cargo doc`, guías de contribución |
+| Release v1.0 | 🔲 | — | ISO booteable + documentación |
+
+**Dependencias:** Todas las fases anteriores.
+
+---
+
+## Métricas actuales del proyecto
+
+| Métrica | Valor |
+|---------|-------|
+| **Módulos del kernel** | 15 |
+| **Líneas de código (Rust)** | ~3,500 |
+| **Unit tests** | 35 |
+| **Syscalls definidas** | 24 |
+| **CI checks** | 3 (build, fmt, clippy) |
+| **Fases completadas** | 5 de 10 |
+
+---
+
+## Principios de escalabilidad
+
+1. **Modularidad**: Cada subsistema es un módulo independiente con interfaz definida.
+2. **No-alloc en kernel core**: Los módulos críticos usan arrays estáticos, no heap.
+3. **Capability-based security**: Todo acceso es mediado por capabilities verificables.
+4. **Audit-first**: Toda acción de seguridad se registra antes de ejecutarse.
+5. **Brane architecture**: El OS es una membrana que escala conectándose a otras membranas.
+6. **AI-assisted**: La IA observa y optimiza, pero nunca tiene control total.
+7. **Test-driven**: Cada módulo tiene tests unitarios; CI valida en cada push.
