@@ -27,7 +27,8 @@ Kernel mínimo   Scheduler       IPC            del sistema     observadora    r
 | Serial output (UART 16550) | ✅ Completo | COM1, macros serial_print!/serial_println! |
 | Boot banner | ✅ Completo | Entry point _start, panic handler |
 | Bootloader / UEFI | 🔲 Pendiente | Decidir boot path |
-| Interrupciones iniciales (IDT) | 🔲 Pendiente | |
+| Interrupciones iniciales (IDT) | ✅ Completo | GDT + TSS + IST, IDT con 7 excepciones, PIC 8259 |
+| Keyboard (PS/2) | ✅ Completo | Scancode decoding, salida serial |
 | Makefile + QEMU runner | ✅ Completo | build, run, test, clean |
 | Documentación base | ✅ Completo | Master spec + docs derivados |
 
