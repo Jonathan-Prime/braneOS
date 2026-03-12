@@ -1,0 +1,17 @@
+[package]
+name = "brane_os_kernel"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Brane OS — Hybrid modular kernel"
+
+[dependencies]
+# CPU intrinsics, port I/O, paging structures
+x86_64 = "0.15"
+# Serial port driver (UART 16550)
+uart_16550 = "0.3"
+# Spinlock (no_std compatible)
+spin = "0.9"
+# Linked-list allocator for heap
+linked_list_allocator = "0.10"

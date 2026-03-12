@@ -1,0 +1,29 @@
+# Build artifacts
+/target/
+**/*.o
+**/*.a
+**/*.so
+**/*.dylib
+
+# OS images
+*.img
+*.iso
+*.bin
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs
+*.log
+serial_output.txt
