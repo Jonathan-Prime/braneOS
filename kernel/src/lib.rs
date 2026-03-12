@@ -9,14 +9,11 @@
 // ============================================================
 
 #![no_std]
-#![feature(abi_x86_interrupt)]
 
-// --- Core subsystem modules (to be implemented) ---
+// --- Core subsystem modules ---
 
-// pub mod arch;       // Architecture-specific code (x86_64)
-// pub mod memory;     // Memory manager (heap, paging)
-// pub mod sched;      // Scheduler
-// pub mod syscall;    // Syscall dispatcher
-// pub mod ipc;        // Inter-process communication
-// pub mod security;   // Capability manager
-// pub mod audit;      // Audit hooks
+// pub mod arch;       // Architecture-specific code (x86_64) — future
+// pub mod syscall;    // Syscall dispatcher — Phase 3
+// pub mod ipc;        // Inter-process communication — Phase 3
+// pub mod security;   // Capability manager — Phase 4
+// pub mod audit;      // Audit hooks — Phase 4
