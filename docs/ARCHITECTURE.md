@@ -1,170 +1,800 @@
 # ARCHITECTURE.md — Brane OS
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §8–§10.  
-> Estado: **Borrador inicial** — pendiente de elaboración detallada.
+> Estado: **Elaborado** — v0.1
 
 ---
 
-## 1. Modelo de arquitectura
+## 1. Filosofía: el concepto "Brane"
 
-**Tipo:** Kernel híbrido modular.
+En física teórica, una **brana** (brane) es una membrana multidimensional que puede interactuar con otras branas. Brane OS adopta esta metáfora como principio arquitectónico central:
 
-Brane OS utiliza una arquitectura híbrida que combina las ventajas de un kernel monolítico (rendimiento, simplicidad en fases tempranas) con la modularidad y extensibilidad de un microkernel (servicios desacoplados, seguridad por aislamiento).
-
-### 1.1 Justificación
-
-| Criterio | Monolítico | Microkernel | **Híbrido (Brane OS)** |
-|----------|-----------|-------------|----------------------|
-| Complejidad inicial | Baja | Alta | Media |
-| Rendimiento IPC | Alto (en-kernel) | Bajo (context switch) | Medio (selectivo) |
-| Seguridad | Menor (todo en ring 0) | Alta (aislamiento) | Alta (servicios fuera del kernel) |
-| Modularidad | Baja | Alta | Alta |
-| Integración IA segura | Difícil | Natural | Natural |
-
----
-
-## 2. Capas del sistema
+- **El sistema operativo es una brana** — una membrana inteligente y adaptativa que encapsula hardware, procesos, servicios e IA.
+- **Los dispositivos externos son branas externas** — peers con capacidades propias que se descubren, conectan y cooperan.
+- **Los celulares son branas compañeras** — portales móviles hacia el sistema principal.
+- **Los módulos del kernel son sub-branas** — componentes encapsulados con interfaces bien definidas que pueden cargarse, descargarse y reconfigurarse.
 
 ```text
-┌─────────────────────────────────────────────────┐
-│  Capa 4 — User Space                            │
-│  Shell, Admin Tools, AI Agents, Utilities        │
-├─────────────────────────────────────────────────┤
-│  Capa 3 — Drivers                                │
-│  Serial, Timer, Disk, Input, Net                 │
-├─────────────────────────────────────────────────┤
-│  Capa 2 — System Services                        │
-│  init, process_manager, filesystem_service,      │
-│  device_manager, network_manager,                │
-│  identity_service, policy_engine,                │
-│  capability_broker, audit_service,               │
-│  ai_orchestrator                                 │
-├─────────────────────────────────────────────────┤
-│  Capa 1 — Kernel Core                            │
-│  Scheduler, Memory Manager, Interrupt Manager,   │
-│  Syscall Dispatcher, Task Manager, IPC Core,     │
-│  Capability Manager, Audit Hooks                 │
-├─────────────────────────────────────────────────┤
-│  Capa 0 — Boot & Platform                        │
-│  Bootloader, Early Init, Platform Bootstrap      │
-└─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                    BRANE OS (brana local)                       │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
+│  │ Kernel   │ │ Services │ │ AI Layer │ │ Drivers  │          │
+│  │ sub-brana│ │ sub-brana│ │ sub-brana│ │ sub-brana│          │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘          │
+│       └──────┬─────┴──────┬─────┘             │               │
+│              │  IPC / Brane Protocol           │               │
+│              └─────────┬───────────────────────┘               │
+│                        │                                       │
+├────────────── Brane Interface Layer ──────────────────────────┤
+│                        │                                       │
+│            ┌───────────┴───────────┐                           │
+│            │   Discovery & Pairing │                           │
+│            └───────────┬───────────┘                           │
+└────────────────────────┼───────────────────────────────────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+┌───────┴──────┐  ┌──────┴───────┐  ┌────┴─────────┐
+│ Brana Externa│  │Brana Companion│  │ Brana Cluster │
+│ (PC / IoT)  │  │ (Celular)    │  │ (Multi-nodo) │
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
 
 ---
 
-## 3. Capa 0 — Boot y plataforma
+## 2. Modelo de arquitectura
 
-### Responsabilidades
-- Inicialización temprana del hardware.
+**Tipo:** Kernel híbrido modular con capa de interconexión brane.
+
+Brane OS utiliza una arquitectura híbrida que combina:
+- **Rendimiento**: módulos críticos corren en kernel space (ring 0).
+- **Seguridad**: servicios complejos y la IA corren en user space (ring 3).
+- **Adaptabilidad**: los módulos pueden cargarse, descargarse y reconfigurarse en caliente.
+- **Interconexión**: una capa de protocolo brane permite comunicación segura con dispositivos externos.
+
+### 2.1 Justificación
+
+| Criterio | Monolítico | Microkernel | **Híbrido Brane** |
+|----------|-----------|-------------|-------------------|
+| Complejidad inicial | Baja | Alta | Media |
+| Rendimiento IPC | Alto (en-kernel) | Bajo (context switch) | Medio (selectivo) |
+| Seguridad | Menor (todo ring 0) | Alta (aislamiento) | Alta (servicios fuera + capacidades) |
+| Modularidad | Baja | Alta | Muy alta (sub-branas) |
+| Integración IA | Difícil | Natural | Nativa + auditable |
+| Interconexión | No contempla | Posible | Nativa (brane protocol) |
+| Adaptabilidad runtime | Limitada | Alta | Muy alta (hot-swap módulos) |
+
+---
+
+## 3. Capas del sistema
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  Capa 5 — Brane Interface Layer                              │
+│  Discovery, Pairing, Remote Capabilities, Brane Protocol     │
+├─────────────────────────────────────────────────────────────┤
+│  Capa 4 — User Space                                         │
+│  Shell, Admin Tools, AI Agents, Utilities, Mobile Companion  │
+├─────────────────────────────────────────────────────────────┤
+│  Capa 3 — Drivers                                            │
+│  Serial, Timer, Disk, Input, Net, USB, Bluetooth             │
+├─────────────────────────────────────────────────────────────┤
+│  Capa 2 — System Services                                    │
+│  init, process_manager, filesystem_service, device_manager,  │
+│  network_manager, identity_service, policy_engine,           │
+│  capability_broker, audit_service, ai_orchestrator,          │
+│  brane_connector                                             │
+├─────────────────────────────────────────────────────────────┤
+│  Capa 1 — Kernel Core                                        │
+│  Scheduler, Memory Manager, Interrupt Manager,               │
+│  Syscall Dispatcher, Task Manager, IPC Core,                 │
+│  Capability Manager, Audit Hooks, Module Loader              │
+├─────────────────────────────────────────────────────────────┤
+│  Capa 0 — Boot & Platform                                    │
+│  Bootloader, Early Init, Platform Bootstrap, Device Tree     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4. Capa 0 — Boot y plataforma
+
+### 4.1 Responsabilidades
+- Inicialización temprana del hardware (CPU, memoria, serial).
 - Lectura del mapa de memoria desde UEFI/BIOS.
 - Carga del kernel en memoria.
-- Paso de control al entry point del kernel.
+- Paso de control al entry point del kernel con una estructura de boot info.
 
-### Decisiones abiertas
-- [ ] Bootloader custom vs. crate `bootloader`.
-- [ ] UEFI vs. Legacy BIOS.
-- [ ] Protocolo de handoff (boot info struct).
+### 4.2 Secuencia de arranque
 
----
-
-## 4. Capa 1 — Kernel Core
-
-### Módulos
-
-| Módulo | Responsabilidad | Estado |
-|--------|----------------|--------|
-| `scheduler` | Planificación de hilos/tareas | Pendiente |
-| `memory_manager` | Heap, paging, frame allocator | Pendiente |
-| `interrupt_manager` | IDT, handlers, excepciones | Pendiente |
-| `syscall_dispatcher` | Interfaz kernel/user | Pendiente |
-| `task_manager` | Creación, destrucción, estados de tareas | Pendiente |
-| `ipc_core` | Comunicación entre procesos | Pendiente |
-| `capability_manager` | Validación de capacidades en kernel | Pendiente |
-| `audit_hooks` | Hooks para auditoría transversal | Pendiente |
-
-### Principios de diseño del kernel
-1. Mínimo código en ring 0.
-2. Sin lógica de inferencia o IA en el kernel.
-3. Todas las decisiones de política delegadas a Capa 2.
-4. Interfaces claras y estables entre módulos.
-
----
-
-## 5. Capa 2 — Servicios del sistema
-
-Los servicios corren en user space (o en un modo privilegiado controlado) y se comunican con el kernel a través de syscalls e IPC.
-
-### Servicios planificados
-
-| Servicio | Dependencias | Prioridad |
-|----------|-------------|-----------|
-| `init` | Kernel Core | Fase 4 (alta) |
-| `process_manager` | Kernel Core, IPC | Fase 4 |
-| `filesystem_service` | Kernel Core, Drivers | Fase 4 |
-| `policy_engine` | IPC, Capability Manager | Fase 4 |
-| `audit_service` | IPC, Audit Hooks | Fase 4 |
-| `device_manager` | Kernel Core, Drivers | Fase 4 |
-| `capability_broker` | Policy Engine, Capability Manager | Fase 6 |
-| `identity_service` | IPC | Fase 6 |
-| `network_manager` | Drivers, IPC | Futuro |
-| `ai_orchestrator` | Todos los servicios de seguridad | Fase 5-6 |
-
----
-
-## 6. Capa 3 — Drivers
-
-### Familias iniciales
-- **Serial (UART 16550)** — Salida de logs temprana. ✅ Implementado en kernel.
-- **Timer (PIT/APIC)** — Base para scheduling.
-- **Disk** — Acceso a almacenamiento básico.
-- **Input** — Teclado básico.
-- **Net** — Futuro.
-
----
-
-## 7. Capa 4 — User Space
-
-- **Shell mínima** — Interfaz de comandos básica.
-- **Admin tools** — Inspección de estado del sistema.
-- **AI Agents** — Runtime IA en user space.
-- **Utilities** — Herramientas auxiliares.
-
----
-
-## 8. Interfaces entre capas
-
-### Kernel ↔ Services (Syscalls)
-```
-Servicio → syscall(id, args...) → Kernel
-Kernel  → resultado / error    → Servicio
+```text
+Power On
+   │
+   ▼
+Firmware (UEFI/BIOS)
+   │──▶ POST, detección de hardware
+   │──▶ Mapa de memoria
+   │──▶ Carga bootloader
+   │
+   ▼
+Bootloader
+   │──▶ Configura modo protegido / long mode (64-bit)
+   │──▶ Configura page tables iniciales (identity mapping)
+   │──▶ Carga imagen del kernel en memoria alta
+   │──▶ Prepara BootInfo struct
+   │──▶ Salta a _start del kernel
+   │
+   ▼
+Kernel Early Init (_start)
+   │──▶ Inicializa serial (UART 16550) para logging
+   │──▶ Configura GDT (Global Descriptor Table)
+   │──▶ Configura IDT (Interrupt Descriptor Table)
+   │──▶ Inicializa frame allocator con mapa de memoria
+   │──▶ Configura page tables definitivas
+   │──▶ Inicializa heap allocator
+   │──▶ Inicializa scheduler
+   │──▶ Carga init (primer proceso de usuario)
+   │
+   ▼
+Sistema operativo funcionando
 ```
 
-### Services ↔ Services (IPC)
-```
-Servicio A → IPC message → Servicio B
-Servicio B → IPC reply   → Servicio A
+### 4.3 Boot Info Struct
+
+```rust
+/// Información pasada del bootloader al kernel.
+#[repr(C)]
+pub struct BootInfo {
+    /// Mapa de regiones de memoria física disponibles.
+    pub memory_map: &'static [MemoryRegion],
+    /// Dirección física del framebuffer (si existe).
+    pub framebuffer: Option<FramebufferInfo>,
+    /// Dirección donde fue cargado el kernel.
+    pub kernel_address: PhysAddr,
+    /// Tamaño del kernel en bytes.
+    pub kernel_size: usize,
+    /// Tabla de ACPI (para detección de hardware).
+    pub acpi_rsdp: Option<PhysAddr>,
+}
+
+#[repr(C)]
+pub struct MemoryRegion {
+    pub start: PhysAddr,
+    pub end: PhysAddr,
+    pub kind: MemoryRegionKind,
+}
+
+pub enum MemoryRegionKind {
+    Usable,
+    Reserved,
+    AcpiReclaimable,
+    KernelImage,
+    BootloaderReserved,
+    Framebuffer,
+}
 ```
 
-### AI ↔ System (Mediado)
+### 4.4 Decisiones
+
+| Decisión | Elección | Justificación |
+|----------|---------|---------------|
+| Bootloader | Crate `bootloader` v0.11+ | Integración nativa con Rust, soporte UEFI |
+| Modo de boot | UEFI | Moderno, extensible, mapa de memoria limpio |
+| Target | `x86_64-unknown-none` | Bare-metal, sin OS host |
+
+---
+
+## 5. Capa 1 — Kernel Core
+
+### 5.1 Principios de diseño
+1. **Mínimo código en ring 0** — solo lo esencial para gestión de hardware.
+2. **Sin lógica de IA en el kernel** — la IA opera exclusivamente en user space.
+3. **Sin decisiones de política** — delegadas a servicios de Capa 2.
+4. **Interfaces estables** — los módulos se comunican a través de traits bien definidos.
+5. **Adaptabilidad** — el module_loader permite cargar/descargar sub-branas en caliente.
+
+### 5.2 Módulos del Kernel
+
+#### 5.2.1 Memory Manager
+
+Gestiona toda la memoria física y virtual del sistema.
+
+```text
+┌──────────────────────────────────────┐
+│           Memory Manager              │
+│                                      │
+│  ┌──────────────┐ ┌───────────────┐  │
+│  │ Frame        │ │ Page Table    │  │
+│  │ Allocator    │ │ Manager       │  │
+│  │              │ │               │  │
+│  │ bitmap de    │ │ mapeo virtual │  │
+│  │ frames libres│ │  → físico     │  │
+│  └──────┬───────┘ └───────┬───────┘  │
+│         │                 │          │
+│  ┌──────┴─────────────────┴───────┐  │
+│  │        Heap Allocator           │  │
+│  │  (linked_list_allocator)        │  │
+│  │  alloc::GlobalAlloc impl        │  │
+│  └─────────────────────────────────┘  │
+└──────────────────────────────────────┘
 ```
-AI Agent → ai_orchestrator → capability_broker → policy_engine → acción
-                                                                → audit_service
+
+**API del kernel:**
+```rust
+pub trait FrameAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame>;
+    fn deallocate_frame(&mut self, frame: PhysFrame);
+    fn available_frames(&self) -> usize;
+}
+
+pub trait PageMapper {
+    fn map_page(
+        &mut self,
+        page: VirtPage,
+        frame: PhysFrame,
+        flags: PageFlags,
+    ) -> Result<(), MapError>;
+    fn unmap_page(&mut self, page: VirtPage) -> Result<PhysFrame, UnmapError>;
+    fn translate(&self, addr: VirtAddr) -> Option<PhysAddr>;
+}
+```
+
+**Mapa de memoria virtual:**
+
+| Rango Virtual | Uso |
+|--------------|-----|
+| `0x0000_0000_0000_0000` — `0x0000_7FFF_FFFF_FFFF` | User space |
+| `0xFFFF_8000_0000_0000` — `0xFFFF_8000_3FFF_FFFF` | Kernel heap (1 GB) |
+| `0xFFFF_8000_4000_0000` — `0xFFFF_BFFF_FFFF_FFFF` | Mapeo directo de memoria física |
+| `0xFFFF_C000_0000_0000` — `0xFFFF_FFFF_7FFF_FFFF` | Kernel code + data |
+| `0xFFFF_FFFF_8000_0000` — `0xFFFF_FFFF_FFFF_FFFF` | Kernel stacks |
+
+---
+
+#### 5.2.2 Interrupt Manager
+
+Gestiona la IDT (Interrupt Descriptor Table), handlers de excepciones y hardware interrupts.
+
+```rust
+/// Registra un handler para un vector de interrupción.
+pub trait InterruptController {
+    fn register_handler(&mut self, vector: u8, handler: InterruptHandler);
+    fn enable_interrupt(&mut self, vector: u8);
+    fn disable_interrupt(&mut self, vector: u8);
+    fn acknowledge(&mut self, vector: u8);
+}
+```
+
+**Vectores reservados:**
+
+| Vector | Tipo | Descripción |
+|--------|------|-------------|
+| 0–31 | Excepciones CPU | Division error, page fault, double fault, etc. |
+| 32 | Timer | PIT/APIC timer tick |
+| 33 | Keyboard | Interrupciones de teclado |
+| 34–47 | Hardware | IRQs de dispositivos |
+| 0x80 | Syscall | Interrupción de software para syscalls |
+
+---
+
+#### 5.2.3 Scheduler
+
+Planificador de tareas con soporte para prioridades y quantum configurable.
+
+```rust
+pub trait Scheduler {
+    /// Selecciona la siguiente tarea a ejecutar.
+    fn next_task(&mut self) -> Option<TaskId>;
+    /// Añade una tarea al planificador.
+    fn add_task(&mut self, task: Task, priority: Priority);
+    /// Elimina una tarea del planificador.
+    fn remove_task(&mut self, id: TaskId);
+    /// Llamado por el timer tick.
+    fn tick(&mut self);
+    /// Cede el turno voluntariamente.
+    fn yield_current(&mut self);
+}
+
+pub enum Priority {
+    Idle     = 0,
+    Low      = 1,
+    Normal   = 2,
+    High     = 3,
+    Realtime = 4,
+    System   = 5,
+}
+```
+
+**Algoritmo fase 1:** Round-robin con prioridades.  
+**Algoritmo futuro:** CFS adaptativo con hints de IA (Capa 5, nivel de acceso 4).
+
+**Diagrama de estados de tarea:**
+```text
+                    ┌─────────────┐
+       create()───▶│   READY      │◀──── wake()
+                    └──────┬──────┘
+                           │ schedule()
+                           ▼
+                    ┌─────────────┐
+                    │   RUNNING    │
+                    └──┬───┬───┬──┘
+                       │   │   │
+            yield()    │   │   │  exit()
+            preempt()  │   │   │
+                       │   │   │
+                       ▼   │   ▼
+              ┌────────┐   │  ┌──────────┐
+              │ READY  │   │  │ FINISHED │
+              └────────┘   │  └──────────┘
+                           │
+                    wait() │
+                           ▼
+                    ┌─────────────┐
+                    │  BLOCKED     │
+                    └─────────────┘
 ```
 
 ---
 
-## 9. Decisiones de arquitectura registradas
+#### 5.2.4 Syscall Dispatcher
 
-Ver carpeta `ADR/` para decisiones formales.
+Punto de entrada para todas las llamadas del user space al kernel.
 
-- **ADR-001**: Arquitectura híbrida modular inicial.
+```rust
+/// Tabla de syscalls.
+pub enum Syscall {
+    // --- Proceso ---
+    Exit          = 0,
+    Yield         = 1,
+    GetPid        = 2,
+    Fork          = 3,
+    Exec          = 4,
+    WaitPid       = 5,
+
+    // --- Memoria ---
+    Mmap          = 10,
+    Munmap        = 11,
+
+    // --- I/O ---
+    Write         = 20,
+    Read          = 21,
+    Open          = 22,
+    Close         = 23,
+
+    // --- IPC ---
+    Send          = 30,
+    Recv          = 31,
+    SendRecv      = 32,
+
+    // --- Capacidades ---
+    RequestCap    = 40,
+    ReleaseCap    = 41,
+    CheckCap      = 42,
+
+    // --- Sistema ---
+    GetTime       = 50,
+    GetSystemInfo = 51,
+
+    // --- Brane ---
+    BraneDiscover = 60,
+    BraneConnect  = 61,
+    BraneSend     = 62,
+    BraneRecv     = 63,
+}
+```
+
+**Convención de llamada (x86_64):**
+
+| Registro | Uso |
+|----------|-----|
+| `rax` | Número de syscall |
+| `rdi` | Argumento 1 |
+| `rsi` | Argumento 2 |
+| `rdx` | Argumento 3 |
+| `r10` | Argumento 4 |
+| `r8`  | Argumento 5 |
+| `rax` (retorno) | Resultado / código de error |
 
 ---
 
-## 10. Próximos pasos
+#### 5.2.5 IPC Core
 
-1. Definir formato exacto de boot handoff.
-2. Diseñar interfaz de syscalls mínimas.
-3. Definir protocolo IPC base.
-4. Documentar invariantes del kernel.
-5. Elaborar diagramas de secuencia para flujos críticos.
+Comunicación entre procesos basada en message passing.
+
+```rust
+/// Mensaje IPC con header tipado y payload.
+#[repr(C)]
+pub struct IpcMessage {
+    pub sender: TaskId,
+    pub receiver: TaskId,
+    pub msg_type: MessageType,
+    pub payload_len: usize,
+    pub payload: [u8; IPC_MAX_PAYLOAD], // 4096 bytes max
+}
+
+pub enum MessageType {
+    Request,
+    Response,
+    Notification,
+    BraneRelay,  // Mensaje reenviado desde brana externa
+}
+
+pub trait IpcChannel {
+    fn send(&self, msg: &IpcMessage) -> Result<(), IpcError>;
+    fn recv(&self, timeout: Option<Duration>) -> Result<IpcMessage, IpcError>;
+    fn send_recv(&self, msg: &IpcMessage) -> Result<IpcMessage, IpcError>;
+}
+```
+
+**Modelo:**
+```text
+Proceso A ──send()──▶ ┌───────────┐ ──deliver()──▶ Proceso B
+                      │ IPC Core  │
+Proceso A ◀──recv()── │ (kernel)  │ ◀──send()──── Proceso B
+                      └───────────┘
+```
+
+---
+
+#### 5.2.6 Capability Manager
+
+Valida tokens de capacidad en tiempo de ejecución desde el kernel.
+
+```rust
+pub type CapabilityId = u64;
+
+pub struct Capability {
+    pub id: CapabilityId,
+    pub owner: TaskId,
+    pub scope: CapScope,
+    pub permissions: CapPermissions,
+    pub risk_level: RiskLevel,
+    pub revocable: bool,
+    pub expires: Option<Timestamp>,
+}
+
+pub enum CapScope {
+    Process(TaskId),
+    Service(ServiceId),
+    System,
+    Brane(BraneId),  // Capacidad sobre brana remota
+}
+
+pub enum RiskLevel {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+pub trait CapabilityValidator {
+    fn check(&self, task: TaskId, cap: CapabilityId) -> Result<(), CapError>;
+    fn grant(&mut self, task: TaskId, cap: Capability) -> Result<CapabilityId, CapError>;
+    fn revoke(&mut self, cap: CapabilityId) -> Result<(), CapError>;
+    fn list(&self, task: TaskId) -> Vec<CapabilityId>;
+}
+```
+
+---
+
+#### 5.2.7 Audit Hooks
+
+Puntos de inserción transversal para registrar eventos auditables.
+
+```rust
+pub struct AuditEvent {
+    pub timestamp: Timestamp,
+    pub source: TaskId,
+    pub action: AuditAction,
+    pub target: Option<ResourceId>,
+    pub capability_used: Option<CapabilityId>,
+    pub result: AuditResult,
+    pub context: [u8; 256],  // Metadata adicional serializada
+}
+
+pub enum AuditAction {
+    SyscallInvoked(Syscall),
+    CapabilityChecked(CapabilityId),
+    CapabilityGranted(CapabilityId),
+    CapabilityRevoked(CapabilityId),
+    IpcMessageSent { to: TaskId },
+    BraneConnected(BraneId),
+    BraneDisconnected(BraneId),
+    AiActionRequested(ActionId),
+    AiActionAuthorized(ActionId),
+    AiActionDenied(ActionId),
+    PolicyEvaluated(PolicyId),
+}
+
+pub enum AuditResult {
+    Success,
+    Denied,
+    Error(ErrorCode),
+    Escalated,
+}
+
+pub trait AuditHook {
+    fn record(&mut self, event: AuditEvent);
+    fn flush(&mut self);
+}
+```
+
+---
+
+#### 5.2.8 Module Loader (Adaptabilidad)
+
+Permite cargar y descargar sub-branas (módulos del kernel) en caliente.
+
+```rust
+pub trait ModuleLoader {
+    /// Carga un módulo desde una imagen binaria.
+    fn load(&mut self, name: &str, image: &[u8]) -> Result<ModuleId, LoadError>;
+    /// Descarga un módulo del kernel.
+    fn unload(&mut self, id: ModuleId) -> Result<(), UnloadError>;
+    /// Lista módulos cargados.
+    fn list_modules(&self) -> Vec<ModuleInfo>;
+    /// Consulta el estado de un módulo.
+    fn status(&self, id: ModuleId) -> Option<ModuleStatus>;
+}
+
+pub struct ModuleInfo {
+    pub id: ModuleId,
+    pub name: String,
+    pub version: Version,
+    pub status: ModuleStatus,
+    pub dependencies: Vec<ModuleId>,
+}
+
+pub enum ModuleStatus {
+    Loaded,
+    Running,
+    Suspended,
+    Unloading,
+    Failed(ErrorCode),
+}
+```
+
+---
+
+## 6. Capa 2 — Servicios del sistema
+
+Los servicios corren en user space y se comunican con el kernel a través de syscalls e IPC. Cada servicio es una sub-brana independiente.
+
+### 6.1 Tabla de servicios
+
+| Servicio | Función | Dependencias | Fase |
+|----------|---------|-------------|------|
+| `init` | Primer proceso, lanza servicios | Kernel Core | 4 |
+| `process_manager` | Gestión del ciclo de vida de procesos | Kernel, IPC | 4 |
+| `filesystem_service` | VFS y acceso a archivos | Kernel, Drivers | 4 |
+| `device_manager` | Hot-plug y gestión de dispositivos | Kernel, Drivers | 4 |
+| `policy_engine` | Evaluación de reglas de política | IPC, Cap Manager | 4 |
+| `audit_service` | Persistencia y consulta de audit logs | IPC, Audit Hooks | 4 |
+| `capability_broker` | Mediador de acceso para acciones privilegiadas | Policy Engine, Cap Manager | 6 |
+| `identity_service` | Autenticación y gestión de identidades | IPC | 6 |
+| `network_manager` | Stack de red | Drivers, IPC | Futuro |
+| `ai_orchestrator` | Coordinación del subsistema IA | Todos los de seguridad | 5–6 |
+| **`brane_connector`** | **Descubrimiento y conexión de branas externas** | Network, Cap Broker, Identity | **Futuro** |
+
+### 6.2 Secuencia de inicio de servicios
+
+```text
+init
+ ├──▶ audit_service        (1°, para registrar todo desde el inicio)
+ ├──▶ policy_engine         (2°, para evaluar permisos)
+ ├──▶ capability_broker     (3°, para mediar acceso)
+ ├──▶ identity_service      (4°, autenticación)
+ ├──▶ process_manager       (5°, gestión de procesos)
+ ├──▶ device_manager        (6°, hardware)
+ ├──▶ filesystem_service    (7°, archivos)
+ ├──▶ network_manager       (8°, red)
+ ├──▶ ai_orchestrator       (9°, IA)
+ ├──▶ brane_connector       (10°, interconexión)
+ └──▶ shell                 (último, interfaz de usuario)
+```
+
+---
+
+## 7. Capa 3 — Drivers
+
+### 7.1 Modelo de drivers
+
+Los drivers se implementan como módulos cargables que exponen una interfaz estándar:
+
+```rust
+pub trait Driver: Send + Sync {
+    fn name(&self) -> &str;
+    fn init(&mut self) -> Result<(), DriverError>;
+    fn shutdown(&mut self) -> Result<(), DriverError>;
+    fn handle_interrupt(&mut self, irq: u8);
+    fn ioctl(&mut self, cmd: u32, arg: usize) -> Result<usize, DriverError>;
+}
+```
+
+### 7.2 Familias
+
+| Driver | Estado | IRQ | Notas |
+|--------|--------|-----|-------|
+| Serial (UART 16550) | ✅ Implementado | 4 | Logging temprano, COM1 |
+| Timer (PIT / APIC) | 🔲 Pendiente | 0/32 | Base para scheduler |
+| Keyboard (PS/2) | 🔲 Pendiente | 1/33 | Entrada básica |
+| Disk (ATA/AHCI) | 🔲 Pendiente | 14 | Almacenamiento |
+| Network (virtio-net) | 🔲 Pendiente | — | Para brane protocol |
+| USB | 🔲 Futuro | — | Para dispositivos externos |
+| Bluetooth | 🔲 Futuro | — | Para mobile companion |
+
+---
+
+## 8. Capa 4 — User Space
+
+| Componente | Descripción | Fase |
+|-----------|-------------|------|
+| Shell mínima | Interfaz de comandos con autocompletado básico | 4 |
+| Admin tools | `ps`, `mem`, `cap`, `audit`, `brane` — inspección del sistema | 4 |
+| AI Agents | Runtime IA en sandbox | 5–6 |
+| Mobile Companion Client | Puente hacia branas compañeras (celulares) | Futuro |
+| Utilities | Herramientas auxiliares del sistema | 4+ |
+
+---
+
+## 9. Capa 5 — Brane Interface Layer
+
+Capa de interconexión que permite que Brane OS se comunique con dispositivos externos (branas externas).
+
+### 9.1 Brane Protocol
+
+Protocolo de comunicación seguro entre branas, operando sobre la capa de red.
+
+```text
+┌─────────────────────────────────────────────┐
+│           Brane Protocol Stack               │
+│                                             │
+│  ┌─────────────────────────────────────┐    │
+│  │  Aplicación: comandos, telemetría,  │    │
+│  │  archivos, notificaciones           │    │
+│  ├─────────────────────────────────────┤    │
+│  │  Sesión: autenticación mutua,       │    │
+│  │  negociación de capacidades         │    │
+│  ├─────────────────────────────────────┤    │
+│  │  Seguridad: TLS / cifrado E2E,     │    │
+│  │  firma de mensajes                  │    │
+│  ├─────────────────────────────────────┤    │
+│  │  Transporte: TCP / UDP / BLE        │    │
+│  └─────────────────────────────────────┘    │
+└─────────────────────────────────────────────┘
+```
+
+### 9.2 Descubrimiento y pairing
+
+```text
+Brana Local                          Brana Externa
+    │                                     │
+    │──── Broadcast: BRANE_DISCOVER ────▶│
+    │                                     │
+    │◀─── Response: BRANE_ANNOUNCE ──────│
+    │     (id, capabilities, public_key)  │
+    │                                     │
+    │──── BRANE_PAIR_REQUEST ──────────▶ │
+    │     (signed challenge)              │
+    │                                     │
+    │◀─── BRANE_PAIR_ACCEPT ──────────── │
+    │     (signed response + session key) │
+    │                                     │
+    │──── Encrypted session ──────────▶  │
+    │◀─── established ────────────────── │
+    │                                     │
+    │  (todo mediado por policy_engine    │
+    │   y capability_broker)              │
+```
+
+### 9.3 Tipos de branas externas
+
+| Tipo | Conectividad | Casos de uso |
+|------|-------------|--------------|
+| **Brana Companion** (celular) | WiFi, Bluetooth | Alertas, control remoto, monitoreo |
+| **Brana Peer** (otro PC/servidor) | Red local / WAN | Cluster, tareas distribuidas |
+| **Brana IoT** (dispositivo embebido) | WiFi, BLE, Zigbee | Sensores, actuadores |
+
+### 9.4 Syscalls de brane
+
+```rust
+/// Descubre branas en la red.
+fn brane_discover(filter: &BraneFilter) -> Result<Vec<BraneInfo>, BraneError>;
+
+/// Conecta a una brana externa.
+fn brane_connect(brane_id: BraneId, auth: &AuthToken) -> Result<BraneSession, BraneError>;
+
+/// Envía un mensaje a una brana conectada.
+fn brane_send(session: BraneSession, msg: &BraneMessage) -> Result<(), BraneError>;
+
+/// Recibe un mensaje de una brana conectada.
+fn brane_recv(session: BraneSession, timeout: Duration) -> Result<BraneMessage, BraneError>;
+```
+
+---
+
+## 10. Interfaces entre capas — Resumen
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                                                              │
+│  User Space ──syscall()──▶ Kernel ──deliver()──▶ Services    │
+│                                                              │
+│  Service A ──IPC send()──▶ IPC Core ──recv()──▶ Service B    │
+│                                                              │
+│  AI Agent ──▶ ai_orchestrator ──▶ cap_broker ──▶ policy      │
+│                                             └──▶ audit       │
+│                                                              │
+│  brane_connector ──brane_protocol──▶ Brana Externa           │
+│         │                                                    │
+│         └──▶ cap_broker (validar capacidades remotas)        │
+│         └──▶ audit_service (registrar interconexión)         │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 11. Adaptabilidad: reconfiguración en caliente
+
+Brane OS soporta adaptabilidad en tres niveles:
+
+| Nivel | Qué se adapta | Mecanismo |
+|-------|--------------|-----------|
+| **Módulos kernel** | Drivers, sub-branas | `module_loader` (load/unload) |
+| **Servicios** | Servicios del sistema | Reinicio vía `process_manager` |
+| **Políticas** | Reglas de acceso y permisos | Actualización en `policy_engine` |
+| **IA** | Modelos y estrategias | Recarga en `model_runtime` |
+| **Branas** | Conexiones externas | Reconexión vía `brane_connector` |
+
+### Flujo de reconfiguración
+
+```text
+1. Trigger (manual, automático, o sugerencia IA)
+           │
+           ▼
+2. policy_engine evalúa si el cambio está permitido
+           │
+     ┌─────┴─────┐
+     ▼           ▼
+  APROBADO    DENEGADO ──▶ audit + fin
+     │
+     ▼
+3. module_loader ejecuta load/unload
+           │
+           ▼
+4. audit_service registra el cambio
+           │
+           ▼
+5. Sistema adaptado ✓
+```
+
+---
+
+## 12. Decisiones de arquitectura registradas
+
+Ver carpeta [`docs/ADR/`](ADR/) para decisiones formales.
+
+| ADR | Título | Estado |
+|-----|--------|--------|
+| ADR-001 | Arquitectura híbrida modular inicial | ✅ Aceptada |
+| ADR-002 | Brane Protocol y capa de interconexión | 🔲 Pendiente |
+| ADR-003 | Diseño de syscalls mínimas | 🔲 Pendiente |
+| ADR-004 | Modelo de IPC (message passing) | 🔲 Pendiente |
+| ADR-005 | Estrategia de memoria virtual | 🔲 Pendiente |
+
+---
+
+## 13. Próximos pasos de implementación
+
+1. ~~Definir estructura del repositorio~~ ✅
+2. ~~Implementar serial output~~ ✅
+3. Implementar IDT y manejo de excepciones (interrupt_manager).
+4. Implementar frame allocator y page table manager.
+5. Implementar heap allocator.
+6. Implementar scheduler básico (round-robin).
+7. Implementar syscall dispatcher (int 0x80).
+8. Implementar IPC básico (message passing).
+9. Implementar capability_manager en kernel.
+10. Crear proceso init y shell mínima.
+11. Diseñar brane protocol (ADR-002).
