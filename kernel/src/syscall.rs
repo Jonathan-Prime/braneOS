@@ -26,54 +26,54 @@
 #[repr(u64)]
 pub enum SyscallNumber {
     // --- Process (0–9) ---
-    Exit          = 0,
-    Yield         = 1,
-    GetPid        = 2,
-    Fork          = 3,
-    Exec          = 4,
-    WaitPid       = 5,
+    Exit = 0,
+    Yield = 1,
+    GetPid = 2,
+    Fork = 3,
+    Exec = 4,
+    WaitPid = 5,
 
     // --- Memory (10–19) ---
-    Mmap          = 10,
-    Munmap        = 11,
+    Mmap = 10,
+    Munmap = 11,
 
     // --- I/O (20–29) ---
-    Write         = 20,
-    Read          = 21,
-    Open          = 22,
-    Close         = 23,
+    Write = 20,
+    Read = 21,
+    Open = 22,
+    Close = 23,
 
     // --- IPC (30–39) ---
-    Send          = 30,
-    Recv          = 31,
-    SendRecv      = 32,
+    Send = 30,
+    Recv = 31,
+    SendRecv = 32,
 
     // --- Capabilities (40–49) ---
-    RequestCap    = 40,
-    ReleaseCap    = 41,
-    CheckCap      = 42,
+    RequestCap = 40,
+    ReleaseCap = 41,
+    CheckCap = 42,
 
     // --- System (50–59) ---
-    GetTime       = 50,
+    GetTime = 50,
     GetSystemInfo = 51,
 
     // --- Brane (60–69) ---
     BraneDiscover = 60,
-    BraneConnect  = 61,
-    BraneSend     = 62,
-    BraneRecv     = 63,
+    BraneConnect = 61,
+    BraneSend = 62,
+    BraneRecv = 63,
 }
 
 impl SyscallNumber {
     /// Convert a raw u64 to a SyscallNumber, if valid.
     pub fn from_raw(n: u64) -> Option<Self> {
         match n {
-            0  => Some(Self::Exit),
-            1  => Some(Self::Yield),
-            2  => Some(Self::GetPid),
-            3  => Some(Self::Fork),
-            4  => Some(Self::Exec),
-            5  => Some(Self::WaitPid),
+            0 => Some(Self::Exit),
+            1 => Some(Self::Yield),
+            2 => Some(Self::GetPid),
+            3 => Some(Self::Fork),
+            4 => Some(Self::Exec),
+            5 => Some(Self::WaitPid),
             10 => Some(Self::Mmap),
             11 => Some(Self::Munmap),
             20 => Some(Self::Write),
@@ -92,7 +92,7 @@ impl SyscallNumber {
             61 => Some(Self::BraneConnect),
             62 => Some(Self::BraneSend),
             63 => Some(Self::BraneRecv),
-            _  => None,
+            _ => None,
         }
     }
 }
@@ -115,25 +115,25 @@ pub enum SyscallResult {
 #[repr(i64)]
 pub enum SyscallError {
     /// Unknown or invalid syscall number.
-    InvalidSyscall     = -1,
+    InvalidSyscall = -1,
     /// Invalid argument provided.
-    InvalidArgument    = -2,
+    InvalidArgument = -2,
     /// Permission denied (capability check failed).
-    PermissionDenied   = -3,
+    PermissionDenied = -3,
     /// The requested resource was not found.
-    NotFound           = -4,
+    NotFound = -4,
     /// Out of memory.
-    OutOfMemory        = -5,
+    OutOfMemory = -5,
     /// The operation would block and non-blocking was requested.
-    WouldBlock         = -6,
+    WouldBlock = -6,
     /// IPC: no message available.
-    NoMessage          = -7,
+    NoMessage = -7,
     /// IPC: destination task not found.
     InvalidDestination = -8,
     /// Brane: not connected.
-    BraneNotConnected  = -9,
+    BraneNotConnected = -9,
     /// Generic / internal error.
-    Internal           = -100,
+    Internal = -100,
 }
 
 impl SyscallResult {
@@ -173,16 +173,17 @@ pub fn dispatch(ctx: &SyscallContext) -> SyscallResult {
     let syscall = match SyscallNumber::from_raw(ctx.number) {
         Some(s) => s,
         None => {
-            crate::serial_println!(
-                "[syscall] UNKNOWN syscall number: {}",
-                ctx.number
-            );
+            crate::serial_println!("[syscall] UNKNOWN syscall number: {}", ctx.number);
             return SyscallResult::Err(SyscallError::InvalidSyscall);
         }
     };
 
-    crate::serial_println!("[syscall] {:?}(0x{:x}, 0x{:x}, 0x{:x})",
-        syscall, ctx.arg1, ctx.arg2, ctx.arg3
+    crate::serial_println!(
+        "[syscall] {:?}(0x{:x}, 0x{:x}, 0x{:x})",
+        syscall,
+        ctx.arg1,
+        ctx.arg2,
+        ctx.arg3
     );
 
     match syscall {

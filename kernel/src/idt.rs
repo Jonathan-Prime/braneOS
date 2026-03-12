@@ -14,7 +14,7 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 
 use crate::gdt;
 use crate::pic;
-use crate::{serial_println, halt_loop};
+use crate::{halt_loop, serial_println};
 
 // -----------------------------------------------------------------------
 // IDT Setup
@@ -33,16 +33,17 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     }
 
     idt.page_fault.set_handler_fn(page_fault_handler);
-    idt.general_protection_fault.set_handler_fn(general_protection_fault_handler);
+    idt.general_protection_fault
+        .set_handler_fn(general_protection_fault_handler);
     idt.invalid_opcode.set_handler_fn(invalid_opcode_handler);
-    idt.segment_not_present.set_handler_fn(segment_not_present_handler);
-    idt.stack_segment_fault.set_handler_fn(stack_segment_fault_handler);
+    idt.segment_not_present
+        .set_handler_fn(segment_not_present_handler);
+    idt.stack_segment_fault
+        .set_handler_fn(stack_segment_fault_handler);
 
     // --- Hardware Interrupts (PIC) ---
-    idt[pic::InterruptIndex::Timer.as_u8()]
-        .set_handler_fn(timer_interrupt_handler);
-    idt[pic::InterruptIndex::Keyboard.as_u8()]
-        .set_handler_fn(keyboard_interrupt_handler);
+    idt[pic::InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
+    idt[pic::InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
 
     idt
 });
@@ -133,7 +134,9 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     // sched::tick();
 
     unsafe {
-        pic::PICS.lock().notify_end_of_interrupt(pic::InterruptIndex::Timer.as_u8());
+        pic::PICS
+            .lock()
+            .notify_end_of_interrupt(pic::InterruptIndex::Timer.as_u8());
     }
 }
 
@@ -147,6 +150,8 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     crate::keyboard::handle_scancode(scancode);
 
     unsafe {
-        pic::PICS.lock().notify_end_of_interrupt(pic::InterruptIndex::Keyboard.as_u8());
+        pic::PICS
+            .lock()
+            .notify_end_of_interrupt(pic::InterruptIndex::Keyboard.as_u8());
     }
 }

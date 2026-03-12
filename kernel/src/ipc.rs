@@ -45,13 +45,13 @@ const MAX_QUEUES: usize = 64;
 #[repr(u8)]
 pub enum MessageType {
     /// RPC-style request expecting a response.
-    Request      = 0,
+    Request = 0,
     /// Response to a previous request.
-    Response     = 1,
+    Response = 1,
     /// Fire-and-forget notification.
     Notification = 2,
     /// Message relayed from an external brane.
-    BraneRelay   = 3,
+    BraneRelay = 3,
 }
 
 impl MessageType {
@@ -199,10 +199,7 @@ impl IpcManager {
         let dest_idx = msg.receiver as usize;
 
         if dest_idx >= MAX_QUEUES {
-            crate::serial_println!(
-                "[ipc] send FAILED: invalid destination {}",
-                msg.receiver
-            );
+            crate::serial_println!("[ipc] send FAILED: invalid destination {}", msg.receiver);
             return SyscallResult::Err(SyscallError::InvalidDestination);
         }
 
@@ -220,10 +217,7 @@ impl IpcManager {
             }
             Err(e) => {
                 self.total_dropped += 1;
-                crate::serial_println!(
-                    "[ipc] send FAILED: task {} queue full",
-                    dest_idx
-                );
+                crate::serial_println!("[ipc] send FAILED: task {} queue full", dest_idx);
                 SyscallResult::Err(e)
             }
         }
@@ -244,7 +238,9 @@ impl IpcManager {
             Some(msg) => {
                 crate::serial_println!(
                     "[ipc] task {} received message from task {} ({:?})",
-                    task_id, msg.sender, msg.msg_type
+                    task_id,
+                    msg.sender,
+                    msg.msg_type
                 );
                 Ok(msg)
             }

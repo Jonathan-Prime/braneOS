@@ -14,9 +14,7 @@
 // ============================================================
 
 use linked_list_allocator::LockedHeap;
-use x86_64::structures::paging::{
-    FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB,
-};
+use x86_64::structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB};
 use x86_64::VirtAddr;
 
 /// Start address of the kernel heap (virtual).

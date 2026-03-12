@@ -11,8 +11,8 @@
 // Spec reference: ARCHITECTURE.md §7 (Capa 3 — Drivers)
 // ============================================================
 
-use spin::Mutex;
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
+use spin::Mutex;
 
 /// Global keyboard state, protected by a spinlock.
 static KEYBOARD: spin::Lazy<Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>>> =

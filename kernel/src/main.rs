@@ -18,15 +18,18 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
-mod serial;
+mod audit;
 mod gdt;
 mod idt;
-mod pic;
+mod ipc;
 mod keyboard;
 mod memory;
+mod module_loader;
+mod pic;
 mod sched;
+mod security;
+mod serial;
 mod syscall;
-mod ipc;
 
 // -----------------------------------------------------------------------
 // Kernel Init
@@ -110,10 +113,17 @@ pub extern "C" fn _start() -> ! {
     // Register a test syscall to verify dispatch
     let test_ctx = syscall::SyscallContext {
         number: syscall::SyscallNumber::GetPid as u64,
-        arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+        arg1: 0,
+        arg2: 0,
+        arg3: 0,
+        arg4: 0,
+        arg5: 0,
     };
     let result = syscall::dispatch(&test_ctx);
-    serial_println!("[sys]  Syscall dispatcher ready. Test GetPid => {}", result.to_raw());
+    serial_println!(
+        "[sys]  Syscall dispatcher ready. Test GetPid => {}",
+        result.to_raw()
+    );
 
     // Test IPC: send a message between tasks
     {
@@ -122,10 +132,82 @@ pub extern "C" fn _start() -> ! {
             0, // receiver: kernel_idle
             ipc::MessageType::Notification,
             b"boot_complete",
-        ).unwrap();
+        )
+        .unwrap();
         let _ = ipc::IPC.lock().send(msg);
         let pending = ipc::IPC.lock().pending_count(0);
-        serial_println!("[ipc]  IPC core ready. Task 0 has {} pending message(s).", pending);
+        serial_println!(
+            "[ipc]  IPC core ready. Task 0 has {} pending message(s).",
+            pending
+        );
+    }
+
+    // === Phase 4: Security & Adaptability ===
+    serial_println!();
+    serial_println!("[boot] Phase 4: Security & adaptability...");
+
+    // Grant initial capabilities
+    {
+        use security::{CapPermissions, CapScope, RiskLevel};
+        let mut cap_mgr = security::CAP_MANAGER.lock();
+        // kernel_idle gets basic read
+        cap_mgr
+            .grant(
+                0,
+                CapScope::System,
+                CapPermissions::READ,
+                RiskLevel::Low,
+                false,
+            )
+            .ok();
+        // init gets full system access
+        cap_mgr
+            .grant(
+                1,
+                CapScope::System,
+                CapPermissions::READ
+                    .union(CapPermissions::WRITE)
+                    .union(CapPermissions::EXECUTE)
+                    .union(CapPermissions::IPC_SEND)
+                    .union(CapPermissions::IPC_RECV),
+                RiskLevel::High,
+                true,
+            )
+            .ok();
+        serial_println!(
+            "[cap]  Capability manager ready: {} active caps.",
+            cap_mgr.active_count()
+        );
+    }
+
+    // Record boot event in audit log
+    audit::AUDIT.lock().record(
+        0,
+        audit::AuditAction::TaskCreated(0),
+        None,
+        audit::AuditResult::Success,
+    );
+    audit::AUDIT.lock().record(
+        0,
+        audit::AuditAction::TaskCreated(1),
+        None,
+        audit::AuditResult::Success,
+    );
+    serial_println!(
+        "[aud]  Audit log ready: {} events recorded.",
+        audit::AUDIT.lock().total_events()
+    );
+
+    // Register built-in kernel sub-branes
+    {
+        let mut loader = module_loader::MODULE_LOADER.lock();
+        loader.load("serial_driver", (0, 1, 0), &[]).ok();
+        loader.load("keyboard_driver", (0, 1, 0), &[]).ok();
+        loader.load("timer_driver", (0, 1, 0), &[]).ok();
+        serial_println!(
+            "[mod]  Module loader ready: {} modules registered.",
+            loader.loaded_count()
+        );
     }
 
     // === Summary ===
@@ -137,11 +219,9 @@ pub extern "C" fn _start() -> ! {
     serial_println!("  Phase 1: GDT, IDT, PIC          ✓");
     serial_println!("  Phase 2: Memory, Scheduler       ✓");
     serial_println!("  Phase 3: Syscalls, IPC           ✓");
+    serial_println!("  Phase 4: Caps, Audit, Modules    ✓");
     serial_println!();
     serial_println!("  Pending:");
-    serial_println!("    - Capability Manager  (Phase 4)");
-    serial_println!("    - Audit Hooks         (Phase 4)");
-    serial_println!("    - Module Loader       (Phase 4)");
     serial_println!("    - Brane Protocol      (Phase 5)");
     serial_println!();
     serial_println!("[boot] Keyboard active. Entering halt loop...");

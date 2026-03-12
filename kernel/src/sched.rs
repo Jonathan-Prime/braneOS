@@ -29,12 +29,12 @@ pub type TaskId = u64;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Priority {
-    Idle     = 0,
-    Low      = 1,
-    Normal   = 2,
-    High     = 3,
+    Idle = 0,
+    Low = 1,
+    Normal = 2,
+    High = 3,
     Realtime = 4,
-    System   = 5,
+    System = 5,
 }
 
 /// Task execution state.
