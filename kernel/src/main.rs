@@ -19,6 +19,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 mod audit;
+mod brane;
 mod gdt;
 mod idt;
 mod ipc;
@@ -210,19 +211,84 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
+    // === Phase 5: Brane Protocol ===
+    serial_println!();
+    serial_println!("[boot] Phase 5: Brane Protocol...");
+
+    {
+        let mut brane_mgr = brane::BRANE.lock();
+        // Set our local brane ID (derived from hardware ID in a real system)
+        brane_mgr.set_local_id(0xBEA1);
+
+        // Simulate discovering nearby branes
+        let phone_id = brane_mgr
+            .register_discovered(
+                "pixel-9",
+                brane::BraneType::Companion,
+                brane::Transport::Bluetooth,
+                0x07, // advertises read + write + execute
+                85,
+            )
+            .unwrap();
+
+        let _server_id = brane_mgr
+            .register_discovered(
+                "home-server",
+                brane::BraneType::Peer,
+                brane::Transport::TcpIp,
+                0xFF, // advertises all caps
+                100,
+            )
+            .unwrap();
+
+        brane_mgr
+            .register_discovered(
+                "temp-sensor-01",
+                brane::BraneType::IoT,
+                brane::Transport::Ble,
+                0x01, // read only
+                70,
+            )
+            .ok();
+
+        serial_println!(
+            "[brane] {} branes discovered.",
+            brane_mgr.discovered_count()
+        );
+
+        // Connect to the companion phone
+        let session = brane_mgr.connect(phone_id, 1).unwrap();
+
+        // Send a test telemetry message
+        let msg = brane::BraneMessage::new(
+            brane::BraneMessageType::Telemetry,
+            0xBEA1,
+            phone_id,
+            session,
+            b"{\"status\":\"boot_complete\",\"phase\":5}",
+        )
+        .unwrap();
+        brane_mgr.send(session, &msg).ok();
+
+        serial_println!(
+            "[brane] Brane Protocol ready: {} active session(s).",
+            brane_mgr.active_session_count()
+        );
+    }
+
     // === Summary ===
     serial_println!();
     serial_println!("===========================================");
-    serial_println!("  Brane OS — Boot Complete");
+    serial_println!("  Brane OS v0.1 \u{2014} Boot Complete");
     serial_println!("===========================================");
     serial_println!();
-    serial_println!("  Phase 1: GDT, IDT, PIC          ✓");
-    serial_println!("  Phase 2: Memory, Scheduler       ✓");
-    serial_println!("  Phase 3: Syscalls, IPC           ✓");
-    serial_println!("  Phase 4: Caps, Audit, Modules    ✓");
+    serial_println!("  Phase 1: GDT, IDT, PIC          \u{2713}");
+    serial_println!("  Phase 2: Memory, Scheduler       \u{2713}");
+    serial_println!("  Phase 3: Syscalls, IPC           \u{2713}");
+    serial_println!("  Phase 4: Caps, Audit, Modules    \u{2713}");
+    serial_println!("  Phase 5: Brane Protocol          \u{2713}");
     serial_println!();
-    serial_println!("  Pending:");
-    serial_println!("    - Brane Protocol      (Phase 5)");
+    serial_println!("  All subsystems online.");
     serial_println!();
     serial_println!("[boot] Keyboard active. Entering halt loop...");
 

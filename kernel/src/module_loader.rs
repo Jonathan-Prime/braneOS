@@ -80,11 +80,9 @@ impl ModuleLoader {
         deps: &[ModuleId],
     ) -> Result<ModuleId, ModuleError> {
         // Check for duplicate names
-        for slot in &self.modules {
-            if let Some(info) = slot {
-                if info.name_str() == name {
-                    return Err(ModuleError::AlreadyLoaded);
-                }
+        for info in self.modules.iter().flatten() {
+            if info.name_str() == name {
+                return Err(ModuleError::AlreadyLoaded);
             }
         }
 
@@ -140,13 +138,11 @@ impl ModuleLoader {
     /// Unload a module by ID.
     pub fn unload(&mut self, id: ModuleId) -> Result<(), ModuleError> {
         // Check no other module depends on this one
-        for slot in &self.modules {
-            if let Some(info) = slot {
-                if info.id != id {
-                    for dep in &info.depends_on {
-                        if *dep == Some(id) {
-                            return Err(ModuleError::HasDependents);
-                        }
+        for info in self.modules.iter().flatten() {
+            if info.id != id {
+                for dep in &info.depends_on {
+                    if *dep == Some(id) {
+                        return Err(ModuleError::HasDependents);
                     }
                 }
             }
@@ -183,12 +179,10 @@ impl ModuleLoader {
     }
 
     fn set_status(&mut self, id: ModuleId, status: ModuleStatus) -> Result<(), ModuleError> {
-        for slot in self.modules.iter_mut() {
-            if let Some(info) = slot {
-                if info.id == id {
-                    info.status = status;
-                    return Ok(());
-                }
+        for info in self.modules.iter_mut().flatten() {
+            if info.id == id {
+                info.status = status;
+                return Ok(());
             }
         }
         Err(ModuleError::NotFound)

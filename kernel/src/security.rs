@@ -154,11 +154,9 @@ impl CapabilityManager {
         required: CapPermissions,
         scope: CapScope,
     ) -> Result<CapabilityId, CapError> {
-        for slot in &self.capabilities {
-            if let Some(cap) = slot {
-                if cap.owner == task && cap.scope == scope && cap.permissions.has(required) {
-                    return Ok(cap.id);
-                }
+        for cap in self.capabilities.iter().flatten() {
+            if cap.owner == task && cap.scope == scope && cap.permissions.has(required) {
+                return Ok(cap.id);
             }
         }
         Err(CapError::PermissionDenied)
