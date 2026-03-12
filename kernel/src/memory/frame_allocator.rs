@@ -36,6 +36,12 @@ pub struct BitmapFrameAllocator {
     free_frames: usize,
 }
 
+impl Default for BitmapFrameAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BitmapFrameAllocator {
     /// Create a new allocator with all frames marked as used.
     ///

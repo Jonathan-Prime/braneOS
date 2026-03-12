@@ -3,17 +3,26 @@
 // ============================================================
 //
 // Re-exports and module declarations for the kernel crate.
-// As subsystems are implemented, they are declared here.
+// All kernel subsystems are declared here so they can be
+// used by both the binary target (main.rs) and unit tests.
 //
 // Spec reference: PROJECT_MASTER_SPEC.md §9.2 (Kernel Core)
 // ============================================================
 
 #![no_std]
 
-// --- Core subsystem modules ---
+pub mod serial;
 
-// pub mod arch;       // Architecture-specific code (x86_64) — future
-// pub mod syscall;    // Syscall dispatcher — Phase 3
-// pub mod ipc;        // Inter-process communication — Phase 3
-// pub mod security;   // Capability manager — Phase 4
-// pub mod audit;      // Audit hooks — Phase 4
+pub mod ai;
+pub mod audit;
+pub mod brane;
+pub mod ipc;
+pub mod memory;
+pub mod module_loader;
+pub mod process;
+pub mod sched;
+pub mod security;
+pub mod syscall;
+
+#[cfg(test)]
+mod tests;

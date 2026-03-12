@@ -88,6 +88,12 @@ pub struct Scheduler {
     tick_count: u64,
 }
 
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scheduler {
     pub const fn new() -> Self {
         const NONE: Option<Task> = None;
