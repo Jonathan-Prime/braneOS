@@ -21,4 +21,6 @@ pic8259 = "0.11"
 pc-keyboard = "0.7"
 # Bootloader API — entry point macro and boot info structures
 bootloader_api = "0.11"
+# TCP/IP network stack (no_std)
+smoltcp = { version = "0.11", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp"] }
 

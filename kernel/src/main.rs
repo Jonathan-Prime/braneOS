@@ -36,8 +36,8 @@ mod pic;
 
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::{
-    ai, audit, brane, framebuffer, ipc, memory, module_loader, process, ramfs, sched, security,
-    serial, shell, syscall, tty, vfs,
+    ai, audit, brane, dns, framebuffer, ipc, memory, module_loader, net, process, ramfs, sched,
+    security, serial, shell, socket, syscall, tty, vfs,
 };
 use brane_os_kernel::{serial_print, serial_println};
 
@@ -400,7 +400,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("  Phase 6: AI Subsystem            ✓");
     serial_println!("  Phase 7: User Space              ✓");
     serial_println!();
-    serial_println!("  All subsystems online.");
+    serial_println!("  All core subsystems online.");
     serial_println!();
 
     // === Phase 8: VFS, TTY & Shell ===
@@ -416,6 +416,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     serial_println!("[vfs]  VFS ready. / mounted (RamFS).");
     serial_println!("[tty]  TTY0 ready (serial + framebuffer).");
+    serial_println!();
+
+    // === Phase 9: Networking ===
+    serial_println!("[boot] Phase 9: Networking...");
+    let _net_available = net::init();
+    dns::init();
+    {
+        let dns_resolver = dns::DNS.lock();
+        serial_println!("[dns]  DNS resolver ready: {} hosts.", dns_resolver.host_count());
+    }
+    {
+        let sock_table = socket::SOCKET_TABLE.lock();
+        serial_println!("[sock] Socket subsystem ready ({} slots).", sock_table.capacity());
+    }
     serial_println!();
 
     // === Interactive Shell ===

@@ -13,7 +13,7 @@
 // ============================================================
 
 use crate::{
-    ai, audit, brane, memory, module_loader, process, sched, security,
+    ai, audit, brane, dns, memory, module_loader, net, process, sched, security, socket,
     serial_println, tty, vfs,
 };
 
@@ -46,6 +46,9 @@ pub fn execute(line: &str) {
         "audit" => cmd_audit(),
         "ls" => cmd_ls(args),
         "cat" => cmd_cat(args),
+        "net" => cmd_net(args),
+        "dns" => cmd_dns(args),
+        "sockets" => cmd_sockets(),
         "clear" => cmd_clear(),
         "reboot" => cmd_reboot(),
         "sched" => cmd_sched(),
@@ -75,6 +78,9 @@ fn cmd_help() {
     tty::tty_println("  audit         Recent audit entries");
     tty::tty_println("  ls [path]     List directory");
     tty::tty_println("  cat <path>    Read file contents");
+    tty::tty_println("  net status    Network interface info");
+    tty::tty_println("  dns <host>    Resolve hostname");
+    tty::tty_println("  sockets       List open sockets");
     tty::tty_println("  clear         Clear screen");
     tty::tty_println("  reboot        Reboot system");
 }
@@ -268,6 +274,103 @@ fn cmd_cat(args: &str) {
             let _ = write!(c, "cat: error: {:?}", e);
             tty::tty_println(c.as_str());
         }
+    }
+}
+
+fn cmd_net(args: &str) {
+    if args != "status" && !args.is_empty() {
+        tty::tty_println("Usage: net status");
+        return;
+    }
+
+    let stack = net::NET_STACK.lock();
+    if !stack.initialized {
+        tty::tty_println("Network: not initialized (no virtio-net device found)");
+        return;
+    }
+
+    use core::fmt::Write;
+    let mut buf = [0u8; 512];
+    let mut c = WriteBuf::new(&mut buf);
+    let _ = writeln!(c, "Network Interface: eth0 (virtio-net)");
+    let _ = writeln!(
+        c,
+        "  MAC:       {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        stack.info.mac[0], stack.info.mac[1], stack.info.mac[2],
+        stack.info.mac[3], stack.info.mac[4], stack.info.mac[5]
+    );
+    let _ = writeln!(
+        c,
+        "  IPv4:      {}.{}.{}.{}/{}",
+        stack.info.ip[0], stack.info.ip[1], stack.info.ip[2], stack.info.ip[3],
+        stack.info.prefix
+    );
+    let _ = writeln!(
+        c,
+        "  Gateway:   {}.{}.{}.{}",
+        stack.info.gateway[0], stack.info.gateway[1],
+        stack.info.gateway[2], stack.info.gateway[3]
+    );
+    let _ = writeln!(c, "  Link:      {}", if stack.info.link_up { "UP" } else { "DOWN" });
+    let _ = writeln!(c, "  TX:        {} packets", stack.info.packets_tx);
+    let _ = writeln!(c, "  RX:        {} packets", stack.info.packets_rx);
+    tty::tty_print(c.as_str());
+}
+
+fn cmd_dns(args: &str) {
+    if args.is_empty() {
+        // List all DNS entries
+        let resolver = dns::DNS.lock();
+        use core::fmt::Write;
+        let mut buf = [0u8; 512];
+        let mut c = WriteBuf::new(&mut buf);
+        let _ = writeln!(c, "DNS Host Table ({} entries):", resolver.host_count());
+        for (name, addr) in resolver.list_hosts() {
+            let _ = writeln!(c, "  {:<20} {}.{}.{}.{}", name, addr[0], addr[1], addr[2], addr[3]);
+        }
+        tty::tty_print(c.as_str());
+        return;
+    }
+
+    let resolver = dns::DNS.lock();
+    match resolver.resolve(args) {
+        Some(addr) => {
+            use core::fmt::Write;
+            let mut buf = [0u8; 128];
+            let mut c = WriteBuf::new(&mut buf);
+            let _ = write!(c, "{} => {}.{}.{}.{}", args, addr[0], addr[1], addr[2], addr[3]);
+            tty::tty_println(c.as_str());
+        }
+        None => {
+            tty::tty_print("dns: host not found: ");
+            tty::tty_println(args);
+        }
+    }
+}
+
+fn cmd_sockets() {
+    let table = socket::SOCKET_TABLE.lock();
+    let count = table.active_count();
+    if count == 0 {
+        tty::tty_println("No active sockets.");
+        return;
+    }
+    tty::tty_println("ID   PROTO  STATE        LOCAL               REMOTE");
+    tty::tty_println("---  -----  -----------  ------------------  ------------------");
+    for sock in table.active_sockets() {
+        use core::fmt::Write;
+        let mut buf = [0u8; 128];
+        let mut c = WriteBuf::new(&mut buf);
+        let proto = match sock.protocol {
+            socket::Protocol::Tcp => "TCP",
+            socket::Protocol::Udp => "UDP",
+        };
+        let _ = write!(
+            c,
+            "{:<4} {:<6} {:?}",
+            sock.id, proto, sock.state
+        );
+        tty::tty_println(c.as_str());
     }
 }
 

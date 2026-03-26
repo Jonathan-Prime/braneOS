@@ -16,18 +16,22 @@ pub mod serial;
 pub mod ai;
 pub mod audit;
 pub mod brane;
+pub mod dns;
 pub mod framebuffer;
 pub mod ipc;
 pub mod memory;
 pub mod module_loader;
+pub mod net;
 pub mod process;
 pub mod ramfs;
 pub mod sched;
 pub mod security;
 pub mod shell;
+pub mod socket;
 pub mod syscall;
 pub mod tty;
 pub mod vfs;
+pub mod virtio;
 
 #[cfg(test)]
 mod tests;

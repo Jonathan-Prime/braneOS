@@ -37,6 +37,10 @@ fn main() {
         .arg("none")
         .arg("-m")
         .arg("128M")
+        .arg("-netdev")
+        .arg("user,id=n0")
+        .arg("-device")
+        .arg("virtio-net-pci,netdev=n0")
         .spawn()
         .expect("Failed to start QEMU");
 

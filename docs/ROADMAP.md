@@ -124,38 +124,27 @@
 
 ## 🔲 Fase 7 — Filesystem, Shell y TTY
 
-**Objetivo:** Sistema de archivos virtual, terminal y shell interactiva.
+## ✅ Fase 7 — Filesystem, Shell y TTY (COMPLETADA — ver Fase 7 arriba)
 
-| Componente | Estado | Prioridad | Notas |
-|-----------|--------|-----------|-------|
-| VFS (Virtual Filesystem) | 🔲 | ALTA | Trait `FileSystem`, mount points |
-| RamFS (in-memory FS) | 🔲 | ALTA | Para boot y testing |
-| TTY driver | 🔲 | ALTA | Terminal virtual via serial + framebuffer |
-| Shell mínima (`brsh`) | 🔲 | ALTA | Comandos: `ls`, `ps`, `cat`, `help`, `brane status` |
-| `initramfs` | 🔲 | MEDIA | Imagen de boot con binarios iniciales |
-| FAT32 / ext2 (lectura) | 🔲 | BAJA | Acceso a discos reales |
-
-**Dependencias:** Fase 6 (page tables para buffers de I/O).
+> Nota: Ver la sección de Fase 7 arriba con los componentes completados.
 
 ---
 
-## 🔲 Fase 8 — Networking y Clustering
+## ✅ Fase 8 — Networking y Clustering (COMPLETADA)
 
 **Objetivo:** Stack de red para comunicación brane real.
 
-| Componente | Estado | Prioridad | Notas |
-|-----------|--------|-----------|-------|
-| Network driver (virtio-net) | 🔲 | ALTA | Para QEMU/KVM |
-| Ethernet frame parsing | 🔲 | ALTA | L2 |
-| ARP + IPv4 | 🔲 | ALTA | L3 |
-| TCP/UDP | 🔲 | ALTA | L4, `smoltcp` crate |
-| Socket API (syscalls) | 🔲 | ALTA | `socket`, `bind`, `listen`, `accept`, `connect` |
-| DNS resolver | 🔲 | MEDIA | Resolución básica |
-| TLS / Crypto | 🔲 | MEDIA | Para Brane Protocol encriptado |
-| Brane Protocol over TCP | 🔲 | MEDIA | Reemplazar simulación con red real |
-| Cluster discovery (mDNS) | 🔲 | BAJA | Auto-descubrimiento en LAN |
-
-**Dependencias:** Fase 6 (DMA, page tables), Fase 7 (VFS para sockets).
+| Componente | Estado | Notas |
+|-----------|--------|-------|
+| Network driver (virtio-net) | ✅ | PCI scan + legacy I/O init, MAC discovery |
+| Ethernet frame parsing | ✅ | smoltcp wire types integrados |
+| ARP + IPv4 | ✅ | Configuración estática 10.0.2.15/24 |
+| TCP/UDP | ✅ | smoltcp 0.11 (socket-tcp, socket-udp) |
+| Socket API (32 slots) | ✅ | create/bind/listen/connect/close |
+| DNS resolver | ✅ | Tabla estática de hosts (4 entradas) |
+| TLS / Crypto | 🔲 | Diferido a Fase 9 |
+| Brane Protocol over TCP | 🔲 | Diferido a Fase 9 |
+| Cluster discovery (mDNS) | 🔲 | Diferido a Fase 9 |
 
 ---
 
@@ -203,12 +192,12 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 19 |
-| **Líneas de código (Rust)** | ~6,500 |
+| **Módulos del kernel** | 23 |
+| **Líneas de código (Rust)** | ~8,200 |
 | **Unit tests** | 35 |
 | **Syscalls definidas** | 24 |
 | **CI checks** | 3 (build, fmt, clippy) |
-| **Fases completadas** | 6 de 10 (Fase 7 en progreso) |
+| **Fases completadas** | 8 de 10 |
 
 ---
 
