@@ -162,6 +162,36 @@ impl SocketTable {
         Ok(())
     }
 
+    /// Send a datagram (stub).
+    pub fn send_to(
+        &mut self,
+        id: u32,
+        buf: &[u8],
+        _addr: [u8; 4],
+        _port: u16,
+    ) -> Result<(), SocketError> {
+        let sock = self.get_mut(id)?;
+        if sock.state != SocketState::Bound && sock.state != SocketState::Connected {
+            return Err(SocketError::InvalidState);
+        }
+        sock.tx_bytes += buf.len() as u64;
+        Ok(())
+    }
+
+    /// Receive a datagram (stub).
+    pub fn recv_from(
+        &mut self,
+        id: u32,
+        _buf: &mut [u8],
+    ) -> Result<(usize, Endpoint), SocketError> {
+        let sock = self.get_mut(id)?;
+        if sock.state != SocketState::Bound && sock.state != SocketState::Connected {
+            return Err(SocketError::InvalidState);
+        }
+        // Stub: always return Timeout (no data)
+        Err(SocketError::Timeout)
+    }
+
     /// Get socket info by ID.
     pub fn get(&self, id: u32) -> Option<&Socket> {
         self.sockets.iter().find(|s| s.id == id && s.is_active())

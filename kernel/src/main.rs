@@ -426,13 +426,30 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let _net_available = net::init();
     dns::init();
     {
+        let _ = net::init(); // Initialize networking
+        let _ = socket::SOCKET_TABLE.lock(); // Initialize socket table
+        let _ = dns::DNS.lock(); // Initialize DNS resolver
+
+        // Initialize UDP Discovery (BDP)
+        use alloc::string::String;
+        if let Err(_e) = brane_os_kernel::brane_discovery::DISCOVERY.lock().init(
+            String::from("local-kernel-id"),
+            String::from("BraneOS-Kernel"),
+        ) {
+            serial_println!("[bdp] Failed to initialize discovery UDP socket");
+        } else {
+            serial_println!("[bdp] UDP Discovery Protocol listening on port 9000");
+            let _ = brane_os_kernel::brane_discovery::DISCOVERY
+                .lock()
+                .broadcast_announce();
+        }
+
         let dns_resolver = dns::DNS.lock();
         serial_println!(
             "[dns]  DNS resolver ready: {} hosts.",
             dns_resolver.host_count()
         );
-    }
-    {
+
         let sock_table = socket::SOCKET_TABLE.lock();
         serial_println!(
             "[sock] Socket subsystem ready ({} slots).",
