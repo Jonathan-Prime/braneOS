@@ -35,11 +35,11 @@ mod keyboard;
 mod pic;
 
 // --- Re-import shared modules from the lib crate ---
+use brane_os_kernel::serial_println;
 use brane_os_kernel::{
     ai, audit, brane, dns, framebuffer, ipc, memory, module_loader, net, process, ramfs, sched,
     security, serial, shell, socket, syscall, tty, vfs,
 };
-use brane_os_kernel::serial_println;
 
 // -----------------------------------------------------------------------
 // Kernel Init
