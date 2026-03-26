@@ -148,12 +148,7 @@ impl SocketTable {
     }
 
     /// Connect a socket to a remote endpoint.
-    pub fn connect(
-        &mut self,
-        id: u32,
-        addr: [u8; 4],
-        port: u16,
-    ) -> Result<(), SocketError> {
+    pub fn connect(&mut self, id: u32, addr: [u8; 4], port: u16) -> Result<(), SocketError> {
         let sock = self.get_mut(id)?;
         sock.remote = Endpoint { addr, port };
         sock.state = SocketState::Connected;

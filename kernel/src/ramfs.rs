@@ -29,7 +29,7 @@ struct Inode {
     node_type: NodeType,
     name: [u8; MAX_NAME],
     name_len: usize,
-    parent: u16,                     // inode index of parent dir (0 = root)
+    parent: u16, // inode index of parent dir (0 = root)
     // File data
     data: [u8; MAX_FILE_SIZE],
     data_len: usize,
@@ -71,6 +71,12 @@ impl Inode {
 pub struct RamFs {
     inodes: [Inode; MAX_INODES],
     inode_count: usize,
+}
+
+impl Default for RamFs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RamFs {
@@ -249,10 +255,10 @@ impl FileSystem for RamFs {
         }
 
         let count = inode.child_count.min(entries.len());
-        for i in 0..count {
+        for (i, entry) in entries.iter_mut().enumerate().take(count) {
             let child_idx = inode.children[i] as usize;
             let child = &self.inodes[child_idx];
-            entries[i] = DirEntry {
+            *entry = DirEntry {
                 name: child.name,
                 name_len: child.name_len,
                 node_type: child.node_type,

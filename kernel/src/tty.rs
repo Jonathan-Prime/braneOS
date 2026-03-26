@@ -25,8 +25,8 @@ pub const MAX_LINE: usize = 256;
 
 struct InputBuffer {
     buf: [u8; INPUT_BUF_SIZE],
-    head: usize,  // write position
-    tail: usize,  // read position
+    head: usize, // write position
+    tail: usize, // read position
     count: usize,
 }
 
@@ -58,6 +58,7 @@ impl InputBuffer {
         Some(byte)
     }
 
+    #[allow(dead_code)]
     fn is_empty(&self) -> bool {
         self.count == 0
     }

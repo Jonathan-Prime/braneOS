@@ -87,6 +87,7 @@ impl BitmapFrameAllocator {
     ///
     /// Returns the physical address of the frame, or `None` if OOM.
     pub fn allocate(&mut self) -> Option<u64> {
+        #[allow(clippy::needless_range_loop)]
         for byte_idx in 0..BITMAP_SIZE {
             if unsafe { ALLOCATOR_BITMAP[byte_idx] } != 0xFF {
                 // This byte has at least one free bit
@@ -158,15 +159,11 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
 // Global frame count accessor
 // -----------------------------------------------------------------------
 
-static FREE_FRAME_COUNT: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
+static FREE_FRAME_COUNT: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
 
 /// Snapshot the free frame count (call after init).
 pub fn snapshot_free_count(alloc: &BitmapFrameAllocator) {
-    FREE_FRAME_COUNT.store(
-        alloc.free_count(),
-        core::sync::atomic::Ordering::Relaxed,
-    );
+    FREE_FRAME_COUNT.store(alloc.free_count(), core::sync::atomic::Ordering::Relaxed);
 }
 
 /// Get the last-snapshotted free frame count.

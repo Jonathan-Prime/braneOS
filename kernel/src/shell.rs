@@ -13,8 +13,8 @@
 // ============================================================
 
 use crate::{
-    ai, audit, brane, dns, memory, module_loader, net, process, sched, security, socket,
-    serial_println, tty, vfs,
+    ai, audit, brane, dns, memory, module_loader, net, process, sched, security, serial_println,
+    socket, tty, vfs,
 };
 
 /// Print the shell prompt.
@@ -96,7 +96,9 @@ fn cmd_ps() {
         let _ = write!(
             cursor,
             "{:<4} {:<22} {:?}",
-            proc.pid, proc.name_str(), proc.state
+            proc.pid,
+            proc.name_str(),
+            proc.state
         );
         tty::tty_println(cursor.as_str());
     }
@@ -111,7 +113,7 @@ fn cmd_mem() {
     let total_kb = (free * 4096) / 1024;
     let _ = writeln!(c, "Physical Memory:");
     let _ = writeln!(c, "  Free frames:  {} ({} KiB)", free, total_kb);
-    let _ = writeln!(c, "");
+    let _ = writeln!(c);
     let _ = writeln!(c, "Kernel Heap:");
     let _ = writeln!(
         c,
@@ -296,22 +298,28 @@ fn cmd_net(args: &str) {
     let _ = writeln!(
         c,
         "  MAC:       {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        stack.info.mac[0], stack.info.mac[1], stack.info.mac[2],
-        stack.info.mac[3], stack.info.mac[4], stack.info.mac[5]
+        stack.info.mac[0],
+        stack.info.mac[1],
+        stack.info.mac[2],
+        stack.info.mac[3],
+        stack.info.mac[4],
+        stack.info.mac[5]
     );
     let _ = writeln!(
         c,
         "  IPv4:      {}.{}.{}.{}/{}",
-        stack.info.ip[0], stack.info.ip[1], stack.info.ip[2], stack.info.ip[3],
-        stack.info.prefix
+        stack.info.ip[0], stack.info.ip[1], stack.info.ip[2], stack.info.ip[3], stack.info.prefix
     );
     let _ = writeln!(
         c,
         "  Gateway:   {}.{}.{}.{}",
-        stack.info.gateway[0], stack.info.gateway[1],
-        stack.info.gateway[2], stack.info.gateway[3]
+        stack.info.gateway[0], stack.info.gateway[1], stack.info.gateway[2], stack.info.gateway[3]
     );
-    let _ = writeln!(c, "  Link:      {}", if stack.info.link_up { "UP" } else { "DOWN" });
+    let _ = writeln!(
+        c,
+        "  Link:      {}",
+        if stack.info.link_up { "UP" } else { "DOWN" }
+    );
     let _ = writeln!(c, "  TX:        {} packets", stack.info.packets_tx);
     let _ = writeln!(c, "  RX:        {} packets", stack.info.packets_rx);
     tty::tty_print(c.as_str());
@@ -326,7 +334,11 @@ fn cmd_dns(args: &str) {
         let mut c = WriteBuf::new(&mut buf);
         let _ = writeln!(c, "DNS Host Table ({} entries):", resolver.host_count());
         for (name, addr) in resolver.list_hosts() {
-            let _ = writeln!(c, "  {:<20} {}.{}.{}.{}", name, addr[0], addr[1], addr[2], addr[3]);
+            let _ = writeln!(
+                c,
+                "  {:<20} {}.{}.{}.{}",
+                name, addr[0], addr[1], addr[2], addr[3]
+            );
         }
         tty::tty_print(c.as_str());
         return;
@@ -338,7 +350,11 @@ fn cmd_dns(args: &str) {
             use core::fmt::Write;
             let mut buf = [0u8; 128];
             let mut c = WriteBuf::new(&mut buf);
-            let _ = write!(c, "{} => {}.{}.{}.{}", args, addr[0], addr[1], addr[2], addr[3]);
+            let _ = write!(
+                c,
+                "{} => {}.{}.{}.{}",
+                args, addr[0], addr[1], addr[2], addr[3]
+            );
             tty::tty_println(c.as_str());
         }
         None => {
@@ -365,11 +381,7 @@ fn cmd_sockets() {
             socket::Protocol::Tcp => "TCP",
             socket::Protocol::Udp => "UDP",
         };
-        let _ = write!(
-            c,
-            "{:<4} {:<6} {:?}",
-            sock.id, proto, sock.state
-        );
+        let _ = write!(c, "{:<4} {:<6} {:?}", sock.id, proto, sock.state);
         tty::tty_println(c.as_str());
     }
 }

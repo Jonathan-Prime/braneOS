@@ -123,15 +123,15 @@ pub fn find_virtio_net() -> Option<PciDevice> {
 /// Offsets from BAR0 for virtio legacy PCI device
 mod virtio_reg {
     pub const DEVICE_FEATURES: u16 = 0x00; // 4 bytes
-    pub const GUEST_FEATURES: u16 = 0x04;  // 4 bytes
-    pub const QUEUE_ADDRESS: u16 = 0x08;   // 4 bytes
-    pub const QUEUE_SIZE: u16 = 0x0C;      // 2 bytes
-    pub const QUEUE_SELECT: u16 = 0x0E;    // 2 bytes
-    pub const QUEUE_NOTIFY: u16 = 0x10;    // 2 bytes
-    pub const DEVICE_STATUS: u16 = 0x12;   // 1 byte
-    pub const ISR_STATUS: u16 = 0x13;      // 1 byte
-    // MAC address at offset 0x14 (6 bytes) for virtio-net
-    pub const MAC_ADDR: u16 = 0x14;        // 6 bytes
+    pub const GUEST_FEATURES: u16 = 0x04; // 4 bytes
+    pub const QUEUE_ADDRESS: u16 = 0x08; // 4 bytes
+    pub const QUEUE_SIZE: u16 = 0x0C; // 2 bytes
+    pub const QUEUE_SELECT: u16 = 0x0E; // 2 bytes
+    pub const QUEUE_NOTIFY: u16 = 0x10; // 2 bytes
+    pub const DEVICE_STATUS: u16 = 0x12; // 1 byte
+    pub const ISR_STATUS: u16 = 0x13; // 1 byte
+                                      // MAC address at offset 0x14 (6 bytes) for virtio-net
+    pub const MAC_ADDR: u16 = 0x14; // 6 bytes
 }
 
 /// Virtio device status flags
@@ -161,6 +161,12 @@ pub struct VirtioNetHeader {
     pub csum_start: u16,
     pub csum_offset: u16,
     pub num_buffers: u16,
+}
+
+impl Default for VirtioNetHeader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VirtioNetHeader {
@@ -242,8 +248,9 @@ impl VirtioNetDevice {
             }
 
             // 8. Driver OK — device is live
-            Port::<u8>::new(base + virtio_reg::DEVICE_STATUS)
-                .write(status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK | status::DRIVER_OK);
+            Port::<u8>::new(base + virtio_reg::DEVICE_STATUS).write(
+                status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK | status::DRIVER_OK,
+            );
         }
 
         self.initialized = true;

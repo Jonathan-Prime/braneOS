@@ -2,8 +2,8 @@ use std::process::Command;
 
 fn main() {
     // Read the kernel path passed by the Makefile
-    let kernel_path = std::env::var("KERNEL_BIN_PATH")
-        .expect("KERNEL_BIN_PATH environment variable not set");
+    let kernel_path =
+        std::env::var("KERNEL_BIN_PATH").expect("KERNEL_BIN_PATH environment variable not set");
 
     let out_dir = std::env::var("OUT_DIR").unwrap_or_else(|_| "target".into());
     let uefi_path = format!("{}/brane_os-uefi.img", out_dir);
@@ -19,7 +19,10 @@ fn main() {
         .create_disk_image(uefi_path.as_ref())
         .unwrap();
 
-    println!("Bootable disk images created at:\n  BIOS: {}\n  UEFI: {}", bios_path, uefi_path);
+    println!(
+        "Bootable disk images created at:\n  BIOS: {}\n  UEFI: {}",
+        bios_path, uefi_path
+    );
 
     // Launch QEMU with the UEFI image
     println!("Launching QEMU (UEFI mode)...");

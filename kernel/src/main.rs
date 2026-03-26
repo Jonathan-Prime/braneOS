@@ -39,7 +39,7 @@ use brane_os_kernel::{
     ai, audit, brane, dns, framebuffer, ipc, memory, module_loader, net, process, ramfs, sched,
     security, serial, shell, socket, syscall, tty, vfs,
 };
-use brane_os_kernel::{serial_print, serial_println};
+use brane_os_kernel::serial_println;
 
 // -----------------------------------------------------------------------
 // Kernel Init
@@ -147,8 +147,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     // Initialize kernel heap — map pages and set up the linked-list allocator
-    memory::heap::init(&mut mapper, &mut frame_alloc)
-        .expect("heap initialization failed");
+    memory::heap::init(&mut mapper, &mut frame_alloc).expect("heap initialization failed");
     serial_println!(
         "[heap] Kernel heap initialized: {} KiB at 0x{:X}",
         memory::heap::HEAP_SIZE / 1024,
@@ -412,7 +411,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let mut vfs_mgr = vfs::VFS.lock();
         let ramfs_ref: &mut dyn vfs::FileSystem = &mut *ramfs::RAMFS.lock();
         let ramfs_ptr: *mut dyn vfs::FileSystem = ramfs_ref;
-        unsafe { vfs_mgr.mount("/", ramfs_ptr).expect("failed to mount ramfs"); }
+        unsafe {
+            vfs_mgr
+                .mount("/", ramfs_ptr)
+                .expect("failed to mount ramfs");
+        }
     }
     serial_println!("[vfs]  VFS ready. / mounted (RamFS).");
     serial_println!("[tty]  TTY0 ready (serial + framebuffer).");
@@ -424,11 +427,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     dns::init();
     {
         let dns_resolver = dns::DNS.lock();
-        serial_println!("[dns]  DNS resolver ready: {} hosts.", dns_resolver.host_count());
+        serial_println!(
+            "[dns]  DNS resolver ready: {} hosts.",
+            dns_resolver.host_count()
+        );
     }
     {
         let sock_table = socket::SOCKET_TABLE.lock();
-        serial_println!("[sock] Socket subsystem ready ({} slots).", sock_table.capacity());
+        serial_println!(
+            "[sock] Socket subsystem ready ({} slots).",
+            sock_table.capacity()
+        );
     }
     serial_println!();
 

@@ -27,6 +27,7 @@ pub const MAX_DIR_ENTRIES: usize = 64;
 pub const MAX_FDS: usize = 16;
 
 /// Maximum simultaneously open files (system-wide).
+#[allow(dead_code)]
 const MAX_OPEN_FILES: usize = 64;
 
 // -----------------------------------------------------------------------
@@ -192,15 +193,13 @@ impl VfsManager {
         let mut best: Option<(&MountPoint, &str)> = None;
         let mut best_len = 0;
 
-        for slot in &self.mounts {
-            if let Some(mp) = slot {
-                let mp_path = mp.path_str();
-                if path.starts_with(mp_path) && mp_path.len() >= best_len {
-                    let relative = &path[mp_path.len()..];
-                    let relative = if relative.is_empty() { "/" } else { relative };
-                    best = Some((mp, relative));
-                    best_len = mp_path.len();
-                }
+        for mp in self.mounts.iter().flatten() {
+            let mp_path = mp.path_str();
+            if path.starts_with(mp_path) && mp_path.len() >= best_len {
+                let relative = &path[mp_path.len()..];
+                let relative = if relative.is_empty() { "/" } else { relative };
+                best = Some((mp, relative));
+                best_len = mp_path.len();
             }
         }
         best

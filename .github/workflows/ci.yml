@@ -47,10 +47,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build (debug)
-        run: cargo build
+        run: cargo build -p brane_os_kernel --target x86_64-unknown-none
 
       - name: Build (release)
-        run: cargo build --release
+        run: cargo build -p brane_os_kernel --target x86_64-unknown-none --release
 
   # -----------------------------------------------------------------
   # Format — check code formatting with rustfmt
@@ -96,4 +96,4 @@ jobs:
             ${{ runner.os }}-clippy-
 
       - name: Run Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings
