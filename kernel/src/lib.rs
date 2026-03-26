@@ -21,9 +21,13 @@ pub mod ipc;
 pub mod memory;
 pub mod module_loader;
 pub mod process;
+pub mod ramfs;
 pub mod sched;
 pub mod security;
+pub mod shell;
 pub mod syscall;
+pub mod tty;
+pub mod vfs;
 
 #[cfg(test)]
 mod tests;

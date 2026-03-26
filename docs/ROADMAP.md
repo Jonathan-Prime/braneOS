@@ -94,22 +94,33 @@
 
 ---
 
-## 🔲 Fase 6 — Bootloader Real y Paging (PRÓXIMO)
+## ✅ Fase 6 — Bootloader Real y Paging (COMPLETADA)
 
 **Objetivo:** Bootear en hardware real con paging completo.
 
-| Componente | Estado | Prioridad | Notas |
-|-----------|--------|-----------|-------|
-| Integrar crate `bootloader` v0.11 | 🔲 | ALTA | UEFI + BIOS legacy boot |
-| Memory map del bootloader | 🔲 | ALTA | Reemplazar regiones simuladas con mapa real |
-| Page Table Manager | 🔲 | ALTA | Recursive/offset page table, map/unmap |
-| Heap init real | 🔲 | ALTA | Conectar heap allocator con page tables |
-| Framebuffer output | 🔲 | MEDIA | Texto en pantalla vía framebuffer |
-| Multiboot2 / UEFI boot | 🔲 | MEDIA | Soporte dual boot |
-
-**Dependencias:** Ninguna (puede iniciar inmediatamente).
+| Componente | Estado | Notas |
+|-----------|--------|-------|
+| Integrar crate `bootloader` v0.11 | ✅ | UEFI boot con OVMF |
+| Memory map del bootloader | ✅ | Parseo real de `boot_info.memory_regions` |
+| Page Table Manager | ✅ | OffsetPageTable desde CR3 con `physical_memory_offset` |
+| Heap init real | ✅ | 1 MiB heap, `linked_list_allocator` mapeado con page tables |
+| Framebuffer output | ✅ | Texto 160×50 via framebuffer BGR, font bitmap 8×16 |
+| UEFI boot | ✅ | OVMF pflash + HVF aceleración |
 
 ---
+
+## 🔲 Fase 7 — Filesystem, Shell y TTY (EN PROGRESO)
+
+**Objetivo:** Sistema de archivos virtual, terminal y shell interactiva.
+
+| Componente | Estado | Prioridad | Notas |
+|-----------|--------|-----------|-------|
+| VFS (Virtual Filesystem) | ✅ | ALTA | Trait `FileSystem`, mount table, path resolution |
+| RamFS (in-memory FS) | ✅ | ALTA | 256 inodes, /dev, /proc, /tmp |
+| TTY driver | ✅ | ALTA | Input ring buffer + dual output (serial+fb) |
+| Shell mínima (`brsh`) | ✅ | ALTA | 13 comandos: help, ps, mem, ls, cat, etc. |
+| `initramfs` | 🔲 | MEDIA | Imagen de boot con binarios iniciales |
+| FAT32 / ext2 (lectura) | 🔲 | BAJA | Acceso a discos reales |
 
 ## 🔲 Fase 7 — Filesystem, Shell y TTY
 
@@ -192,12 +203,12 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 15 |
-| **Líneas de código (Rust)** | ~3,500 |
+| **Módulos del kernel** | 19 |
+| **Líneas de código (Rust)** | ~6,500 |
 | **Unit tests** | 35 |
 | **Syscalls definidas** | 24 |
 | **CI checks** | 3 (build, fmt, clippy) |
-| **Fases completadas** | 5 de 10 |
+| **Fases completadas** | 6 de 10 (Fase 7 en progreso) |
 
 ---
 

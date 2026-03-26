@@ -18,7 +18,11 @@ extern crate alloc;
 
 use bootloader_api::{entry_point, BootInfo, BootloaderConfig};
 
-pub const CONFIG: BootloaderConfig = BootloaderConfig::new_default();
+pub const CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(bootloader_api::config::Mapping::Dynamic);
+    config
+};
 
 entry_point!(kernel_main, config = &CONFIG);
 
@@ -32,8 +36,8 @@ mod pic;
 
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::{
-    ai, audit, brane, framebuffer, ipc, memory, module_loader, process, sched, security, serial,
-    syscall,
+    ai, audit, brane, framebuffer, ipc, memory, module_loader, process, ramfs, sched, security,
+    serial, shell, syscall, tty, vfs,
 };
 use brane_os_kernel::{serial_print, serial_println};
 
@@ -110,25 +114,49 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!();
     serial_println!("[boot] Phase 2: Memory subsystem...");
 
-    // Initialize the frame allocator with a simulated memory map.
-    // In the future, the bootloader will provide the real memory map.
+    // Initialize the frame allocator with the real bootloader memory map
     let mut frame_alloc = memory::frame_allocator::BitmapFrameAllocator::new();
 
-    // Simulate: mark 16 MiB – 128 MiB as usable memory
-    // (below 16 MiB is reserved for kernel + BIOS/UEFI)
-    frame_alloc.mark_region_free(16 * 1024 * 1024, 128 * 1024 * 1024);
+    let mut usable_bytes: u64 = 0;
+    for region in boot_info.memory_regions.iter() {
+        use bootloader_api::info::MemoryRegionKind;
+        if region.kind == MemoryRegionKind::Usable {
+            let start = region.start;
+            let size = region.end - region.start;
+            frame_alloc.mark_region_free(start, size);
+            usable_bytes += size;
+        }
+    }
 
     serial_println!(
         "[mem]  Frame allocator ready: {} free frames ({} MiB usable)",
         frame_alloc.free_count(),
-        (frame_alloc.free_count() * 4096) / (1024 * 1024)
+        usable_bytes / (1024 * 1024)
     );
 
-    // NOTE: Heap initialization requires a page mapper, which needs
-    // the bootloader's page table access. For now, we skip the heap
-    // init and rely on stack-allocated structures. The heap will be
-    // enabled when we integrate with the `bootloader` crate.
-    serial_println!("[heap] Heap allocator: deferred (needs bootloader page tables).");
+    // Initialize paging — get the OffsetPageTable from the bootloader's CR3
+    let phys_offset = boot_info
+        .physical_memory_offset
+        .into_option()
+        .expect("bootloader must provide physical_memory_offset");
+
+    let mut mapper = unsafe { memory::paging::init(x86_64::VirtAddr::new(phys_offset)) };
+    serial_println!(
+        "[page] OffsetPageTable initialized (phys_offset=0x{:X})",
+        phys_offset
+    );
+
+    // Initialize kernel heap — map pages and set up the linked-list allocator
+    memory::heap::init(&mut mapper, &mut frame_alloc)
+        .expect("heap initialization failed");
+    serial_println!(
+        "[heap] Kernel heap initialized: {} KiB at 0x{:X}",
+        memory::heap::HEAP_SIZE / 1024,
+        memory::heap::HEAP_START
+    );
+
+    // Snapshot frame count for the `mem` command
+    memory::frame_allocator::snapshot_free_count(&frame_alloc);
 
     // === Phase 2: Scheduler ===
     serial_println!();
@@ -240,7 +268,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let mut loader = module_loader::MODULE_LOADER.lock();
         loader.load("serial_driver", (0, 1, 0), &[]).ok();
         loader.load("keyboard_driver", (0, 1, 0), &[]).ok();
-        pub const CONFIG: bootloader_api::BootloaderConfig = bootloader_api::BootloaderConfig::new_default();
         loader.load("timer_driver", (0, 1, 0), &[]).ok();
         serial_println!(
             "[mod]  Module loader ready: {} modules registered.",
@@ -375,9 +402,50 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!();
     serial_println!("  All subsystems online.");
     serial_println!();
-    serial_println!("[boot] Keyboard active. Entering halt loop...");
 
-    halt_loop();
+    // === Phase 8: VFS, TTY & Shell ===
+    serial_println!("[boot] Phase 8: VFS, TTY & Shell...");
+
+    // Initialize RamFS and mount at /
+    ramfs::init();
+    {
+        let mut vfs_mgr = vfs::VFS.lock();
+        let ramfs_ref: &mut dyn vfs::FileSystem = &mut *ramfs::RAMFS.lock();
+        let ramfs_ptr: *mut dyn vfs::FileSystem = ramfs_ref;
+        unsafe { vfs_mgr.mount("/", ramfs_ptr).expect("failed to mount ramfs"); }
+    }
+    serial_println!("[vfs]  VFS ready. / mounted (RamFS).");
+    serial_println!("[tty]  TTY0 ready (serial + framebuffer).");
+    serial_println!();
+
+    // === Interactive Shell ===
+    serial_println!("[boot] Starting brsh (Brane Shell)...");
+    serial_println!();
+    tty::tty_println("Welcome to Brane OS v0.1");
+    tty::tty_println("Type 'help' for available commands.");
+    tty::tty_println("");
+    shell::prompt();
+
+    // Shell loop: wait for keyboard input, process commands
+    loop {
+        x86_64::instructions::hlt(); // Wait for interrupt
+
+        // Check if a line is ready
+        let mut tty_guard = tty::TTY.lock();
+        if tty_guard.has_line() {
+            // Copy the line to a local buffer before releasing the lock
+            let mut cmd_buf = [0u8; tty::MAX_LINE];
+            let line = tty_guard.read_line();
+            let len = line.len().min(tty::MAX_LINE);
+            cmd_buf[..len].copy_from_slice(&line.as_bytes()[..len]);
+            tty_guard.clear_line();
+            drop(tty_guard); // Release lock before executing command
+
+            let cmd_str = core::str::from_utf8(&cmd_buf[..len]).unwrap_or("");
+            shell::execute(cmd_str);
+            shell::prompt();
+        }
+    }
 }
 
 // -----------------------------------------------------------------------

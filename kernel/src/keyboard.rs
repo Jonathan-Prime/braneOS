@@ -34,10 +34,10 @@ pub fn handle_scancode(scancode: u8) {
         if let Some(key) = keyboard.process_keyevent(key_event) {
             match key {
                 DecodedKey::Unicode(character) => {
-                    crate::serial_print!("{}", character);
+                    brane_os_kernel::tty::TTY.lock().on_char(character);
                 }
-                DecodedKey::RawKey(key) => {
-                    crate::serial_print!("{:?}", key);
+                DecodedKey::RawKey(_key) => {
+                    // Ignore raw keys for now (arrows, function keys, etc.)
                 }
             }
         }

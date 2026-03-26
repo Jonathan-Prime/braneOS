@@ -153,3 +153,23 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
             .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
     }
 }
+
+// -----------------------------------------------------------------------
+// Global frame count accessor
+// -----------------------------------------------------------------------
+
+static FREE_FRAME_COUNT: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+/// Snapshot the free frame count (call after init).
+pub fn snapshot_free_count(alloc: &BitmapFrameAllocator) {
+    FREE_FRAME_COUNT.store(
+        alloc.free_count(),
+        core::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// Get the last-snapshotted free frame count.
+pub fn free_frame_count() -> usize {
+    FREE_FRAME_COUNT.load(core::sync::atomic::Ordering::Relaxed)
+}

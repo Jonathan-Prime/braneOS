@@ -231,6 +231,22 @@ impl core::fmt::Write for FramebufferWriter {
 /// Global framebuffer writer.
 pub static FB_WRITER: Mutex<FramebufferWriter> = Mutex::new(FramebufferWriter::new());
 
+/// Print a string to the framebuffer (no-op if framebuffer not initialized).
+pub fn fb_print(s: &str) {
+    let mut writer = FB_WRITER.lock();
+    if writer.is_available() {
+        writer.write_str(s);
+    }
+}
+
+/// Clear the framebuffer screen.
+pub fn fb_clear() {
+    let mut writer = FB_WRITER.lock();
+    if writer.is_available() {
+        writer.clear();
+    }
+}
+
 // -----------------------------------------------------------------------
 // Built-in 8×16 bitmap font (subset)
 // -----------------------------------------------------------------------
