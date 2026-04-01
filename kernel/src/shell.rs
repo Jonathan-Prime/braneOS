@@ -54,6 +54,7 @@ pub fn execute(line: &str) {
         "clear" => cmd_clear(),
         "reboot" => cmd_reboot(),
         "sched" => cmd_sched(),
+        "yield" => cmd_yield(),
         _ => {
             tty::tty_print("Unknown command: ");
             tty::tty_println(cmd);
@@ -72,7 +73,8 @@ fn cmd_help() {
     tty::tty_println("  help          Show this help");
     tty::tty_println("  ps            List processes");
     tty::tty_println("  mem           Memory statistics");
-    tty::tty_println("  sched         Scheduler status");
+    tty::tty_println("  sched         Scheduler tasks + context info");
+    tty::tty_println("  yield         Cooperatively yield current task");
     tty::tty_println("  lsmod         List loaded modules");
     tty::tty_println("  brane status  Brane protocol status");
     tty::tty_println("  ai status     AI engine status");
@@ -129,11 +131,52 @@ fn cmd_mem() {
 
 fn cmd_sched() {
     use core::fmt::Write;
-    let mut buf = [0u8; 128];
+
+    let (snapshot, total) = {
+        let scheduler = sched::SCHEDULER.lock();
+        (scheduler.snapshot(), scheduler.total_ticks())
+    };
+
+    let mut buf = [0u8; 64];
     let mut c = WriteBuf::new(&mut buf);
-    let scheduler = sched::SCHEDULER.lock();
-    let _ = writeln!(c, "Scheduler: {} active tasks", scheduler.active_count());
+    let _ = writeln!(c, "Scheduler — {} ticks total", total);
     tty::tty_print(c.as_str());
+
+    tty::tty_println("ID   PRI   STATE    TICKS  RSP              RIP              NAME");
+    tty::tty_println("---  ----  -------  -----  ---------------  ---------------  --------");
+
+    for slot in &snapshot {
+        if let Some(t) = slot {
+            let mut buf2 = [0u8; 160];
+            let mut c2 = WriteBuf::new(&mut buf2);
+            let pri = match t.priority {
+                sched::Priority::Idle     => "Idle",
+                sched::Priority::Low      => "Low ",
+                sched::Priority::Normal   => "Norm",
+                sched::Priority::High     => "High",
+                sched::Priority::Realtime => "RT  ",
+                sched::Priority::System   => "Sys ",
+            };
+            let state = match t.state {
+                sched::TaskState::Ready    => "Ready  ",
+                sched::TaskState::Running  => "Running",
+                sched::TaskState::Blocked  => "Blocked",
+                sched::TaskState::Finished => "Done   ",
+            };
+            let _ = write!(
+                c2,
+                "{:<4} {}  {}  {:<5}  {:016x}  {:016x}  {}",
+                t.id, pri, state, t.ticks, t.rsp, t.rip, t.name_str()
+            );
+            tty::tty_println(c2.as_str());
+        }
+    }
+}
+
+fn cmd_yield() {
+    tty::tty_println("[sched] Yielding current task...");
+    sched::yield_current();
+    tty::tty_println("[sched] Resumed.");
 }
 
 fn cmd_lsmod() {

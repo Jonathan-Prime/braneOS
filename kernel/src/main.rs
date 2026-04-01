@@ -13,6 +13,7 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(naked_functions)]
 
 extern crate alloc;
 
@@ -159,13 +160,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // === Phase 2: Scheduler ===
     serial_println!();
-    serial_println!("[boot] Phase 2: Scheduler...");
+    serial_println!("[boot] Phase 2: Scheduler (with cooperative context switching)...");
     {
         let mut scheduler = sched::SCHEDULER.lock();
+        // The boot task reuses the bootloader's stack — no dedicated stack needed.
         scheduler.add_task("kernel_idle", sched::Priority::Idle);
-        scheduler.add_task("init", sched::Priority::System);
+        // Register init as a real task with its own 16 KiB kernel stack.
+        // In a future phase this will jump to user-space.
+        scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
         serial_println!(
-            "[sched] Scheduler ready: {} tasks registered.",
+            "[sched] Scheduler ready: {} tasks, cooperative context switching enabled.",
             scheduler.active_count()
         );
     }

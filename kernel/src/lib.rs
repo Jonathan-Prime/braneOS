@@ -18,6 +18,7 @@ pub mod audit;
 pub mod brane;
 pub mod brane_discovery;
 pub mod brane_session;
+pub mod context;
 pub mod crypto;
 pub mod dns;
 pub mod framebuffer;

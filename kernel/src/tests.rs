@@ -391,3 +391,190 @@ mod ai_tests {
         assert_eq!(id2, id1 + 1);
     }
 }
+
+// -----------------------------------------------------------------------
+// Context switching tests
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod context_tests {
+    use crate::context::{KernelStack, TaskContext};
+
+    #[test]
+    fn empty_context_is_all_zeros() {
+        let ctx = TaskContext::empty();
+        assert_eq!(ctx.rbx, 0);
+        assert_eq!(ctx.r12, 0);
+        assert_eq!(ctx.r13, 0);
+        assert_eq!(ctx.r14, 0);
+        assert_eq!(ctx.r15, 0);
+        assert_eq!(ctx.rbp, 0);
+        assert_eq!(ctx.rsp, 0);
+        assert_eq!(ctx.rip, 0);
+    }
+
+    #[test]
+    fn new_task_context_sets_rip() {
+        let fake_entry: u64 = 0xDEAD_BEEF_0000_1234;
+        let stack_top: u64 = 0xFFFF_8000_0001_0000;
+        let ctx = TaskContext::new_task(stack_top, fake_entry);
+        assert_eq!(ctx.rip, fake_entry);
+    }
+
+    #[test]
+    fn new_task_context_rsp_below_stack_top() {
+        let stack_top: u64 = 0xFFFF_8000_0001_0000;
+        let ctx = TaskContext::new_task(stack_top, 0x1000);
+        assert!(ctx.rsp < stack_top, "RSP must be below stack top");
+    }
+
+    #[test]
+    fn new_task_context_rbp_equals_stack_top() {
+        let stack_top: u64 = 0xFFFF_8000_0001_0000;
+        let ctx = TaskContext::new_task(stack_top, 0x1000);
+        assert_eq!(ctx.rbp, stack_top);
+    }
+
+    #[test]
+    fn new_task_callee_regs_zero() {
+        let ctx = TaskContext::new_task(0xFFFF_0000, 0x1000);
+        assert_eq!(ctx.rbx, 0);
+        assert_eq!(ctx.r12, 0);
+        assert_eq!(ctx.r13, 0);
+        assert_eq!(ctx.r14, 0);
+        assert_eq!(ctx.r15, 0);
+    }
+
+    #[test]
+    fn context_is_copy() {
+        let ctx = TaskContext::new_task(0x1_0000, 0x2000);
+        let ctx2 = ctx;
+        assert_eq!(ctx.rip, ctx2.rip);
+        assert_eq!(ctx.rsp, ctx2.rsp);
+    }
+
+    #[test]
+    fn kernel_stack_size_is_16_kib() {
+        assert_eq!(KernelStack::SIZE, 16 * 1024);
+    }
+
+    #[test]
+    fn kernel_stack_top_above_base() {
+        let stack = KernelStack::new();
+        let base = stack.data.as_ptr() as u64;
+        assert!(stack.top() > base);
+    }
+
+    #[test]
+    fn kernel_stack_top_within_bounds() {
+        let stack = KernelStack::new();
+        let base = stack.data.as_ptr() as u64;
+        let end = base + KernelStack::SIZE as u64;
+        assert!(stack.top() <= end);
+    }
+
+    #[test]
+    fn kernel_stack_top_is_16_byte_aligned() {
+        let stack = KernelStack::new();
+        assert_eq!(stack.top() % 16, 0, "stack top must be 16-byte aligned");
+    }
+}
+
+// -----------------------------------------------------------------------
+// Scheduler context-switch integration tests
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod scheduler_context_tests {
+    use crate::sched::{Priority, Scheduler, TaskState};
+
+    #[test]
+    fn add_boot_task_has_zero_rsp() {
+        let mut sched = Scheduler::new();
+        let id = sched.add_task("boot", Priority::System).unwrap();
+        let snap = sched.snapshot();
+        let t = snap.iter().flatten().find(|t| t.id == id).unwrap();
+        assert_eq!(t.rsp, 0, "boot task has no real RSP until first switch");
+        assert_eq!(t.rip, 0, "boot task RIP is zero until first switch");
+    }
+
+    #[test]
+    fn add_task_with_entry_has_nonzero_rip() {
+        extern "C" fn fake_task() -> ! { loop {} }
+        let mut sched = Scheduler::new();
+        let id = sched
+            .add_task_with_entry("worker", Priority::Normal, fake_task)
+            .unwrap();
+        let snap = sched.snapshot();
+        let t = snap.iter().flatten().find(|t| t.id == id).unwrap();
+        assert_ne!(t.rip, 0, "entry task should have a valid RIP");
+        assert_ne!(t.rsp, 0, "entry task should have an allocated RSP");
+    }
+
+    #[test]
+    fn prepare_switch_returns_none_with_one_task() {
+        let mut sched = Scheduler::new();
+        sched.add_task("solo", Priority::System);
+        assert!(sched.prepare_switch().is_none());
+    }
+
+    #[test]
+    fn prepare_switch_advances_current_task() {
+        let mut sched = Scheduler::new();
+        sched.add_task("task_a", Priority::Normal);
+        sched.add_task("task_b", Priority::Normal);
+        sched.tick();
+        let before = sched.current_task_id();
+        let pair = sched.prepare_switch();
+        assert!(pair.is_some());
+        let after = sched.current_task_id();
+        assert_ne!(before, after, "current task should have changed");
+    }
+
+    #[test]
+    fn blocked_task_not_selected_for_switch() {
+        let mut sched = Scheduler::new();
+        sched.add_task("task_a", Priority::Normal).unwrap();
+        let id_b = sched.add_task("task_b", Priority::Normal).unwrap();
+        sched.add_task("task_c", Priority::Normal).unwrap();
+        sched.tick();
+        sched.block_task(id_b);
+        for _ in 0..6 {
+            let _ = sched.prepare_switch();
+            if let Some(cur) = sched.current_task_id() {
+                assert_ne!(cur, id_b, "blocked task must not be scheduled");
+            }
+        }
+    }
+
+    #[test]
+    fn unblock_task_makes_it_ready() {
+        let mut sched = Scheduler::new();
+        sched.add_task("task_a", Priority::Normal).unwrap();
+        let id_b = sched.add_task("task_b", Priority::Normal).unwrap();
+        sched.block_task(id_b);
+        assert!(sched.unblock_task(id_b));
+        let snap = sched.snapshot();
+        let t = snap.iter().flatten().find(|t| t.id == id_b).unwrap();
+        assert_eq!(t.state, TaskState::Ready);
+    }
+
+    #[test]
+    fn snapshot_reflects_all_tasks() {
+        let mut sched = Scheduler::new();
+        sched.add_task("a", Priority::Low);
+        sched.add_task("b", Priority::Normal);
+        sched.add_task("c", Priority::High);
+        let snap = sched.snapshot();
+        assert_eq!(snap.iter().flatten().count(), 3);
+    }
+
+    #[test]
+    fn remove_task_decreases_count() {
+        let mut sched = Scheduler::new();
+        let id = sched.add_task("tmp", Priority::Low).unwrap();
+        assert_eq!(sched.active_count(), 1);
+        sched.remove_task(id);
+        assert_eq!(sched.active_count(), 0);
+    }
+}
