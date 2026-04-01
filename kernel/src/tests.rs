@@ -580,3 +580,76 @@ mod scheduler_context_tests {
         assert_eq!(sched.active_count(), 0);
     }
 }
+// -----------------------------------------------------------------------
+// FAT32 stub tests
+// -----------------------------------------------------------------------
+
+#[cfg(test)]
+mod fat32_tests {
+    use crate::fat32::{Fat32BootSector, PartitionEntry};
+
+    #[test]
+    fn parse_mbr_valid_partition() {
+        let mut data = [0u8; 16];
+        data[0] = 0x80; // active
+        data[4] = 0x0B; // FAT32 (CHS)
+        data[8..12].copy_from_slice(&2048u32.to_le_bytes()); // start LBA
+        data[12..16].copy_from_slice(&102400u32.to_le_bytes()); // sectors
+
+        let entry = PartitionEntry::parse(&data).expect("should parse valid partition");
+        assert_eq!(entry.status, 0x80);
+        assert_eq!(entry.partition_type, 0x0B);
+        assert_eq!(entry.start_lba, 2048);
+        assert_eq!(entry.sector_count, 102400);
+    }
+
+    #[test]
+    fn parse_mbr_empty_partition() {
+        let data = [0u8; 16];
+        assert!(PartitionEntry::parse(&data).is_none(), "zeroed partition should be None");
+    }
+
+    #[test]
+    fn parse_boot_sector_invalid_signature() {
+        let data = [0u8; 512];
+        assert!(Fat32BootSector::parse(&data).is_none(), "missing 0x55AA signature");
+    }
+
+    #[test]
+    fn parse_boot_sector_valid() {
+        let mut data = [0u8; 512];
+        data[510] = 0x55;
+        data[511] = 0xAA;
+        
+        // Bytes per sector
+        data[11..13].copy_from_slice(&512u16.to_le_bytes());
+        // Sectors per cluster
+        data[13] = 8;
+        // Reserved sectors
+        data[14..16].copy_from_slice(&32u16.to_le_bytes());
+        // FAT count
+        data[16] = 2;
+        // Total sectors 32
+        data[32..36].copy_from_slice(&200000u32.to_le_bytes());
+        // Sectors per FAT 32
+        data[36..40].copy_from_slice(&1000u32.to_le_bytes());
+        
+        // Volume label "BRANE_OS   "
+        let label = b"BRANE_OS   ";
+        data[71..82].copy_from_slice(label);
+        
+        // FS Type "FAT32   "
+        let fstype = b"FAT32   ";
+        data[82..90].copy_from_slice(fstype);
+
+        let bs = Fat32BootSector::parse(&data).expect("should parse valid boot sector");
+        assert_eq!(bs.bytes_per_sector, 512);
+        assert_eq!(bs.sectors_per_cluster, 8);
+        assert_eq!(bs.reserved_sectors, 32);
+        assert_eq!(bs.fat_count, 2);
+        assert_eq!(bs.total_sectors_32, 200000);
+        assert_eq!(bs.sectors_per_fat_32, 1000);
+        assert_eq!(&bs.volume_label, label);
+        assert_eq!(&bs.fs_type_label, fstype);
+    }
+}

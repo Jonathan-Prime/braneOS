@@ -21,6 +21,7 @@ pub mod brane_session;
 pub mod context;
 pub mod crypto;
 pub mod dns;
+pub mod fat32;
 pub mod framebuffer;
 pub mod ipc;
 pub mod memory;

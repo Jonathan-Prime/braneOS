@@ -115,7 +115,7 @@ impl TaskContext {
 /// function executes, to prevent deadlock when the new task tries to
 /// acquire it.
 #[cfg(target_arch = "x86_64")]
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn switch_context(
     old_ctx: *mut TaskContext,   // rdi
     new_ctx: *const TaskContext, // rsi
@@ -134,7 +134,6 @@ pub unsafe extern "C" fn switch_context(
         // value currently on top of the stack.
         "mov rax, [rsp]",
         "mov [rdi + 0x38], rax",
-
         // ── Restore new task from *new_ctx ────────────────────────────
         "mov rbx, [rsi + 0x00]",
         "mov r12, [rsi + 0x08]",

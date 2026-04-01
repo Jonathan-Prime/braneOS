@@ -21,6 +21,13 @@ const MAX_FILE_SIZE: usize = 4096;
 const MAX_CHILDREN: usize = 32;
 
 // -----------------------------------------------------------------------
+// Initramfs embedded logic
+// -----------------------------------------------------------------------
+
+const MOTD_CONTENT: &[u8] = b"Welcome to Brane OS v1.0-alpha\n";
+const INIT_SCRIPT_CONTENT: &[u8] = b"#!/bin/brsh\necho 'Starting Brane OS Services...'\nbrane status\nlsmod\n";
+
+// -----------------------------------------------------------------------
 // Inode
 // -----------------------------------------------------------------------
 
@@ -330,4 +337,12 @@ pub fn init() {
     fs.create("/dev", NodeType::Directory).ok();
     fs.create("/proc", NodeType::Directory).ok();
     fs.create("/tmp", NodeType::Directory).ok();
+    fs.create("/etc", NodeType::Directory).ok();
+
+    // Populate initramfs files
+    fs.create("/etc/motd", NodeType::File).ok();
+    let _ = fs.write("/etc/motd", 0, MOTD_CONTENT);
+
+    fs.create("/etc/init.sh", NodeType::File).ok();
+    let _ = fs.write("/etc/init.sh", 0, INIT_SCRIPT_CONTENT);
 }
