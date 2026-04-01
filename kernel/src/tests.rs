@@ -500,7 +500,9 @@ mod scheduler_context_tests {
 
     #[test]
     fn add_task_with_entry_has_nonzero_rip() {
-        extern "C" fn fake_task() -> ! { loop {} }
+        extern "C" fn fake_task() -> ! {
+            loop {}
+        }
         let mut sched = Scheduler::new();
         let id = sched
             .add_task_with_entry("worker", Priority::Normal, fake_task)

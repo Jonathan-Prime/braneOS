@@ -150,23 +150,29 @@ fn cmd_sched() {
             let mut buf2 = [0u8; 160];
             let mut c2 = WriteBuf::new(&mut buf2);
             let pri = match t.priority {
-                sched::Priority::Idle     => "Idle",
-                sched::Priority::Low      => "Low ",
-                sched::Priority::Normal   => "Norm",
-                sched::Priority::High     => "High",
+                sched::Priority::Idle => "Idle",
+                sched::Priority::Low => "Low ",
+                sched::Priority::Normal => "Norm",
+                sched::Priority::High => "High",
                 sched::Priority::Realtime => "RT  ",
-                sched::Priority::System   => "Sys ",
+                sched::Priority::System => "Sys ",
             };
             let state = match t.state {
-                sched::TaskState::Ready    => "Ready  ",
-                sched::TaskState::Running  => "Running",
-                sched::TaskState::Blocked  => "Blocked",
+                sched::TaskState::Ready => "Ready  ",
+                sched::TaskState::Running => "Running",
+                sched::TaskState::Blocked => "Blocked",
                 sched::TaskState::Finished => "Done   ",
             };
             let _ = write!(
                 c2,
                 "{:<4} {}  {}  {:<5}  {:016x}  {:016x}  {}",
-                t.id, pri, state, t.ticks, t.rsp, t.rip, t.name_str()
+                t.id,
+                pri,
+                state,
+                t.ticks,
+                t.rsp,
+                t.rip,
+                t.name_str()
             );
             tty::tty_println(c2.as_str());
         }
