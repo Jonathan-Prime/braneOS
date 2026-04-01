@@ -118,9 +118,9 @@
 | VFS (Virtual Filesystem) | ✅ | ALTA | Trait `FileSystem`, mount table, path resolution |
 | RamFS (in-memory FS) | ✅ | ALTA | 256 inodes, /dev, /proc, /tmp |
 | TTY driver | ✅ | ALTA | Input ring buffer + dual output (serial+fb) |
-| Shell mínima (`brsh`) | ✅ | ALTA | 13 comandos: help, ps, mem, ls, cat, etc. |
-| `initramfs` | 🔲 | MEDIA | Imagen de boot con binarios iniciales |
-| FAT32 / ext2 (lectura) | 🔲 | BAJA | Acceso a discos reales |
+| `brsh` (Shell mínima) | ✅ | ALTA | 13 comandos: help, ps, mem, ls, cat, etc. |
+| `initramfs` | ✅ | MEDIA | Imagen de boot dinámica en RamFS (/etc/motd, etc.) |
+| FAT32 / ext2 (lectura) | ✅ | BAJA | Stub de lectura y parseo de MBR/BootSector |
 
 ## 🔲 Fase 7 — Filesystem, Shell y TTY
 
@@ -148,21 +148,30 @@
 
 ---
 
-## 🔲 Fase 9 — Brane Protocol v2 y Mobile Bridge
+## ✅ Fase 9 — Brane Protocol v2 (COMPLETADA)
 
-**Objetivo:** Protocolo brane real para interconexión con dispositivos.
+**Objetivo:** Protocolo brane real para interconexión segura con dispositivos.
 
 | Componente | Estado | Prioridad | Notas |
 |-----------|--------|-----------|-------|
-| Brane handshake criptográfico | 🔲 | ALTA | Ed25519 + X25519 key exchange |
-| Brane session encryption (E2E) | 🔲 | ALTA | ChaCha20-Poly1305 |
-| Capability negotiation protocol | 🔲 | ALTA | Intercambio de caps entre branes |
-| Mobile companion app (API) | 🔲 | MEDIA | REST/WebSocket bridge para iOS/Android |
-| Brane resource sharing | 🔲 | MEDIA | Compartir CPU, storage, sensors |
-| Brane migration | 🔲 | BAJA | Migrar procesos entre branes |
-| IoT sensor protocol | 🔲 | BAJA | Protocolo ligero para dispositivos embebidos |
+| State machine de sesiones | ✅ | ALTA | Init → WaitResponse → WaitCapability → Established → Closed |
+| Handshake X25519 (ECDH) | ✅ | ALTA | Key exchange de 32 bytes, derivación de shared secret |
+| Session encryption (ChaCha20-Poly1305) | ✅ | ALTA | Cifrado E2E con nonce counter de 64bits (12-byte format) |
+| Capability negotiation protocol | ✅ | ALTA | `CapabilityNegotiation` struct con serialización binary-safe |
+| TCP session management | ✅ | ALTA | Integración en `brane_discovery.rs` con sesión registry |
+| Packet types (6 tipos) | ✅ | ALTA | HandshakeInit, Response, CapabilityExchange, EncryptedData, Alert, Disconnect |
+| Error handling | ✅ | MEDIA | `SessionError` enum con 6 tipos de error específicos |
+| Unit tests (14 tests) | ✅ | MEDIA | State machine, serialization, encryption/decryption |
+| Mobile companion bridge | 🔲 | MEDIA | Diferido a Fase 10 |
+| Brane resource sharing | 🔲 | MEDIA | Diferido a Fase 10 |
+| IoT lightweight protocol | 🔲 | BAJA | Diferido a Fase 10 |
 
-**Dependencias:** Fase 8 (TCP/IP stack).
+**Dependencias:** Fase 8 (TCP/IP stack), crypto.rs (X25519, ChaCha20).
+
+**Nuevos módulos:**
+- `brane_session.rs` (500+ líneas): Máquina de estados, cifrado, serialización
+- `CapabilityOffer` y `CapabilityNegotiation` structs
+- Métodos en `DiscoverySubsystem` para gestionar sesiones TCP
 
 ---
 
@@ -172,7 +181,8 @@
 
 | Componente | Estado | Prioridad | Notas |
 |-----------|--------|-----------|-------|
-| Context switching real | 🔲 | ALTA | Save/restore registros, ring 0 ↔ ring 3 |
+| Context switching real | ✅ | ALTA | Coop: save/restore registers (r12-r15, rbx, rbp, rsp) |
+| User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
 | User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
 | Señales (SIGTERM, SIGKILL, etc.) | 🔲 | ALTA | Signal handling POSIX-like |
 | Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler |
@@ -194,10 +204,10 @@
 |---------|-------|
 | **Módulos del kernel** | 23 |
 | **Líneas de código (Rust)** | ~8,200 |
-| **Unit tests** | 35 |
+| **Unit tests** | 50 |
 | **Syscalls definidas** | 24 |
 | **CI checks** | 3 (build, fmt, clippy) |
-| **Fases completadas** | 8 de 10 |
+| **Fases completadas** | 9 de 10 (Fase 9 en curso, Fase 10 iniciada) |
 
 ---
 
