@@ -461,14 +461,14 @@ mod context_tests {
     #[test]
     fn kernel_stack_top_above_base() {
         let stack = KernelStack::new();
-        let base = stack.data.as_ptr() as u64;
+        let base = stack.base_ptr();
         assert!(stack.top() > base);
     }
 
     #[test]
     fn kernel_stack_top_within_bounds() {
         let stack = KernelStack::new();
-        let base = stack.data.as_ptr() as u64;
+        let base = stack.base_ptr();
         let end = base + KernelStack::SIZE as u64;
         assert!(stack.top() <= end);
     }
@@ -500,7 +500,7 @@ mod scheduler_context_tests {
 
     #[test]
     fn add_task_with_entry_has_nonzero_rip() {
-        extern "C" fn fake_task() -> ! {
+        fn fake_task() -> ! {
             loop {}
         }
         let mut sched = Scheduler::new();

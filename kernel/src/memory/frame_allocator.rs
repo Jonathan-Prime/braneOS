@@ -48,6 +48,12 @@ impl BitmapFrameAllocator {
     ///
     /// Call `mark_region_free` to mark usable memory regions.
     pub fn new() -> Self {
+        // Reset the bitmap to all-used (0xFF) to ensure a clean state.
+        // This is critical for correctness when multiple allocators are
+        // created (e.g. during parallel unit tests).
+        unsafe {
+            ALLOCATOR_BITMAP = [0xFF; BITMAP_SIZE];
+        }
         Self {
             total_frames: MAX_FRAMES,
             free_frames: 0,
@@ -95,7 +101,7 @@ impl BitmapFrameAllocator {
                     let frame = byte_idx * 8 + bit;
                     if frame < MAX_FRAMES && !self.is_used(frame) {
                         self.set_used(frame);
-                        self.free_frames -= 1;
+                        self.free_frames = self.free_frames.saturating_sub(1);
                         return Some((frame * FRAME_SIZE) as u64);
                     }
                 }

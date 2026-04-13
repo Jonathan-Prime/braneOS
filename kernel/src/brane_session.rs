@@ -14,7 +14,6 @@
 extern crate alloc;
 
 use crate::crypto::{EphemeralKey, SessionCrypto};
-use crate::security::{Capability, CapPermissions, CapScope, RiskLevel};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -87,7 +86,7 @@ impl CapabilityOffer {
             return None;
         }
 
-        let name = String::from_utf8_lossy(&data[*offset..*offset + name_len]).to_string();
+        let name = String::from_utf8_lossy(&data[*offset..*offset + name_len]).into_owned();
         *offset += name_len;
 
         if *offset + 4 + 1 > data.len() {
@@ -167,7 +166,7 @@ impl CapabilityNegotiation {
             return None; // At least node_id + timestamp + counts
         }
 
-        let mut offset = 0;
+        let mut offset;
 
         // Parse node_id
         let mut node_id = [0u8; 16];
@@ -214,7 +213,7 @@ impl CapabilityNegotiation {
                 return None;
             }
 
-            let name = String::from_utf8_lossy(&data[offset..offset + name_len]).to_string();
+            let name = String::from_utf8_lossy(&data[offset..offset + name_len]).into_owned();
             offset += name_len;
             required.push(name);
         }
@@ -429,7 +428,7 @@ impl BraneSession {
 
         crate::serial_println!("[session] Building CapabilityExchange packet...");
 
-        let timestamp = crate::get_time().as_millis() as u64;
+        let timestamp = crate::get_time_millis();
         let mut neg = CapabilityNegotiation::new(our_node_id, timestamp);
 
         // Offer default capabilities (server-side perspective)
@@ -502,7 +501,7 @@ impl BraneSession {
 
         // Mark session as established and ready for encrypted data
         self.state = SessionState::Established;
-        self.established_at = crate::get_time().as_millis() as u64;
+        self.established_at = crate::get_time_millis();
 
         crate::serial_println!(
             "[session] Session established! (peer: {:02x?})",
@@ -537,10 +536,11 @@ impl BraneSession {
             return Err(SessionError::InvalidState);
         }
 
+        // Get nonce BEFORE borrowing crypto_engine to avoid borrow conflict
+        let nonce = self.get_tx_nonce();
+
         let engine = self.crypto_engine.as_ref()
             .ok_or(SessionError::CryptoEngineNotReady)?;
-
-        let nonce = self.get_tx_nonce();
 
         let ciphertext = engine.encrypt(&nonce, data)
             .ok_or(SessionError::DecryptionFailed)?;
@@ -564,10 +564,11 @@ impl BraneSession {
             return Err(SessionError::InvalidState);
         }
 
+        // Get nonce BEFORE borrowing crypto_engine to avoid borrow conflict
+        let nonce = self.get_rx_nonce();
+
         let engine = self.crypto_engine.as_ref()
             .ok_or(SessionError::CryptoEngineNotReady)?;
-
-        let nonce = self.get_rx_nonce();
 
         let plaintext = engine.decrypt(&nonce, data)
             .ok_or(SessionError::DecryptionFailed)?;
@@ -683,7 +684,7 @@ mod tests {
         assert_eq!(session.state, SessionState::WaitResponse);
 
         // Simulate receiving response (would normally come from peer)
-        // For testing, we create another session and do a full handshake
+        // For testing, we create another session and use its public key
         let mut peer_session = BraneSession::new(43);
         let peer_handshake = peer_session.build_handshake_init();
 
@@ -697,8 +698,11 @@ mod tests {
     fn test_session_established_after_capability_exchange() {
         let mut session = BraneSession::new(42);
 
-        // Setup handshake
-        let peer_session = BraneSession::new(43);
+        // Step 1: Session builds HandshakeInit (Init → WaitResponse)
+        let _init_pkt = session.build_handshake_init();
+
+        // Step 2: Peer creates its handshake and we process it as a response
+        let mut peer_session = BraneSession::new(43);
         let peer_handshake = peer_session.build_handshake_init();
         let _ = session.process_handshake_response(&peer_handshake.payload);
 

@@ -135,7 +135,7 @@ impl DiscoverySubsystem {
     fn parse_node_id_hex(&mut self, hex: &str) {
         // Simple parsing: take first 16 bytes of hex string as node ID
         let mut idx = 0;
-        for (i, c) in hex.chars().take(32).enumerate() {
+        for (i, _c) in hex.chars().take(32).enumerate() {
             if i % 2 == 1 {
                 if let Ok(byte) = u8::from_str_radix(&hex[i - 1..=i], 16) {
                     if idx < 16 {
@@ -241,7 +241,7 @@ impl DiscoverySubsystem {
                 .ok()
                 .ok_or("Failed to build capability exchange")?;
 
-            // Send over TCP
+            // Send over TCP (using send_to with remote endpoint placeholder)
             let mut table = socket::SOCKET_TABLE.lock();
             let _ = table.send(socket_id, &pkt.to_bytes());
 

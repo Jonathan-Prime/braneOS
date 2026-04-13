@@ -122,12 +122,6 @@
 | `initramfs` | ✅ | MEDIA | Imagen de boot dinámica en RamFS (/etc/motd, etc.) |
 | FAT32 / ext2 (lectura) | ✅ | BAJA | Stub de lectura y parseo de MBR/BootSector |
 
-## 🔲 Fase 7 — Filesystem, Shell y TTY
-
-## ✅ Fase 7 — Filesystem, Shell y TTY (COMPLETADA — ver Fase 7 arriba)
-
-> Nota: Ver la sección de Fase 7 arriba con los componentes completados.
-
 ---
 
 ## ✅ Fase 8 — Networking y Clustering (COMPLETADA)
@@ -202,12 +196,12 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 23 |
-| **Líneas de código (Rust)** | ~8,200 |
-| **Unit tests** | 50 |
+| **Módulos del kernel** | 32 |
+| **Líneas de código (Rust)** | ~9,500 |
+| **Unit tests** | 70 |
 | **Syscalls definidas** | 24 |
 | **CI checks** | 3 (build, fmt, clippy) |
-| **Fases completadas** | 9 de 10 (Fase 9 en curso, Fase 10 iniciada) |
+| **Fases completadas** | 9 de 10 |
 
 ---
 

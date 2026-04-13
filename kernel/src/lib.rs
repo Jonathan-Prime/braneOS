@@ -40,3 +40,25 @@ pub mod virtio;
 
 #[cfg(test)]
 mod tests;
+
+// -----------------------------------------------------------------------
+// Kernel Time
+// -----------------------------------------------------------------------
+
+/// Returns a monotonic millisecond timestamp.
+///
+/// In bare-metal mode, this derives from the scheduler tick count
+/// (each PIT tick ≈ 55 ms at 18.2 Hz).
+/// In test mode (host), returns 0 since there is no hardware timer.
+pub fn get_time_millis() -> u64 {
+    #[cfg(test)]
+    {
+        0
+    }
+    #[cfg(not(test))]
+    {
+        // Use scheduler tick count × ~55 ms per tick (PIT at 18.2 Hz)
+        let ticks = sched::SCHEDULER.lock().total_ticks();
+        ticks * 55
+    }
+}

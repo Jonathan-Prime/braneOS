@@ -180,6 +180,13 @@ impl KernelStack {
         }
     }
 
+    /// Get the base address (lowest address) of the stack.
+    ///
+    /// Useful for bounds checking and testing.
+    pub fn base_ptr(&self) -> u64 {
+        self.data.as_ptr() as u64
+    }
+
     /// Address of the top of this stack (highest valid byte + 1).
     ///
     /// The CPU expects RSP to point here before any `push` or `call`.

@@ -3,7 +3,6 @@ target = "target.json" # Fallback to custom target if needed, but our Makefile p
 
 [target.x86_64-unknown-none]
 rustflags = [
-    "-C", "link-arg=-nostartfiles",
     "--cfg", "poly1305_force_soft",
     "--cfg", "chacha20_force_soft"
 ]

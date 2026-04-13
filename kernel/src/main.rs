@@ -13,7 +13,6 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
-#![feature(naked_functions)]
 
 extern crate alloc;
 
@@ -511,5 +510,23 @@ fn panic(info: &PanicInfo) -> ! {
 pub fn halt_loop() -> ! {
     loop {
         x86_64::instructions::hlt();
+    }
+}
+// -----------------------------------------------------------------------
+// Kernel Init Task
+// -----------------------------------------------------------------------
+
+/// The kernel init task runs as a separate scheduled task.
+///
+/// It performs deferred initialization and then enters an idle loop,
+/// periodically yielding back to the scheduler.
+fn kernel_init_task() -> ! {
+    serial_println!("[init] Kernel init task started.");
+
+    // Future: run deferred init, service startup, etc.
+
+    loop {
+        // Cooperatively yield to let other tasks run
+        sched::yield_current();
     }
 }

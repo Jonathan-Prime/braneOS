@@ -162,6 +162,16 @@ impl SocketTable {
         Ok(())
     }
 
+    /// Send data on a connected socket (uses stored remote endpoint).
+    pub fn send(&mut self, id: u32, buf: &[u8]) -> Result<(), SocketError> {
+        let sock = self.get_mut(id)?;
+        if sock.state != SocketState::Connected && sock.state != SocketState::Established {
+            return Err(SocketError::InvalidState);
+        }
+        sock.tx_bytes += buf.len() as u64;
+        Ok(())
+    }
+
     /// Send a datagram (stub).
     pub fn send_to(
         &mut self,
