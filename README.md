@@ -47,6 +47,7 @@ For detailed technical documentation, see the [`docs/`](docs/) directory:
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [SECURITY_MODEL.md](docs/SECURITY_MODEL.md)
 - [AI_SUBSYSTEM.md](docs/AI_SUBSYSTEM.md)
+- [RUNBOOK.md](docs/RUNBOOK.md)
 
 ---
 
@@ -54,17 +55,17 @@ For detailed technical documentation, see the [`docs/`](docs/) directory:
 
 To build and run Brane OS locally, you'll need the following tools:
 
-- **Rust Nightly** (`rustup default nightly`)
+- **Rust Nightly** (managed by `rust-toolchain.toml`)
 - Rust components: `rust-src`, `llvm-tools-preview`
 - **QEMU** (`qemu-system-x86_64`) for emulation
-- `make` or `just`
+- `make`
 
 ### macOS Setup (Homebrew)
 ```bash
 # Install Rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup toolchain install nightly
-rustup component add rust-src llvm-tools-preview --toolchain nightly
+rustup component add rust-src llvm-tools-preview rustfmt clippy --toolchain nightly
 
 # Install QEMU
 brew install qemu
@@ -87,8 +88,14 @@ make build-release
 make run
 
 # Run formatting and linting
-make fmt && make clippy
+cargo fmt --all -- --check
+make clippy
+
+# Run host-side unit tests
+make test
 ```
+
+For the full local execution and CI checklist, see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ---
 

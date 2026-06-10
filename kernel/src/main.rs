@@ -123,7 +123,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         if region.kind == MemoryRegionKind::Usable {
             let start = region.start;
             let size = region.end - region.start;
-            frame_alloc.mark_region_free(start, size);
+            frame_alloc.mark_region_free(start, region.end);
             usable_bytes += size;
         }
     }
@@ -442,9 +442,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             serial_println!("[bdp] Failed to initialize discovery UDP socket");
         } else {
             serial_println!("[bdp] UDP Discovery Protocol listening on port 9000");
-            let _ = brane_os_kernel::brane_discovery::DISCOVERY
-                .lock()
-                .broadcast_announce();
+            serial_println!("[bdp] Initial broadcast announce deferred until runtime polling.");
         }
 
         let dns_resolver = dns::DNS.lock();

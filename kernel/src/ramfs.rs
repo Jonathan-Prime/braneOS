@@ -25,7 +25,8 @@ const MAX_CHILDREN: usize = 32;
 // -----------------------------------------------------------------------
 
 const MOTD_CONTENT: &[u8] = b"Welcome to Brane OS v1.0-alpha\n";
-const INIT_SCRIPT_CONTENT: &[u8] = b"#!/bin/brsh\necho 'Starting Brane OS Services...'\nbrane status\nlsmod\n";
+const INIT_SCRIPT_CONTENT: &[u8] =
+    b"#!/bin/brsh\necho 'Starting Brane OS Services...'\nbrane status\nlsmod\n";
 
 // -----------------------------------------------------------------------
 // Inode

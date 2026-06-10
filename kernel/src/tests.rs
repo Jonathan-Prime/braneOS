@@ -12,15 +12,24 @@
 #[cfg(test)]
 mod frame_allocator_tests {
     use crate::memory::frame_allocator::BitmapFrameAllocator;
+    use spin::{Mutex, MutexGuard};
+
+    static FRAME_ALLOCATOR_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_tests() -> MutexGuard<'static, ()> {
+        FRAME_ALLOCATOR_TEST_LOCK.lock()
+    }
 
     #[test]
     fn new_allocator_has_no_free_frames() {
+        let _guard = lock_tests();
         let alloc = BitmapFrameAllocator::new();
         assert_eq!(alloc.free_count(), 0);
     }
 
     #[test]
     fn mark_region_free_increases_count() {
+        let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
         // Mark 1 MiB as free (256 frames)
         alloc.mark_region_free(0, 1024 * 1024);
@@ -28,7 +37,17 @@ mod frame_allocator_tests {
     }
 
     #[test]
+    fn mark_region_free_uses_end_address() {
+        let _guard = lock_tests();
+        let mut alloc = BitmapFrameAllocator::new();
+        alloc.mark_region_free(4096 * 10, 4096 * 15);
+        assert_eq!(alloc.free_count(), 5);
+        assert_eq!(alloc.allocate(), Some(4096 * 10));
+    }
+
+    #[test]
     fn allocate_returns_frame_and_decreases_count() {
+        let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
         alloc.mark_region_free(0, 4096 * 10); // 10 frames
         assert_eq!(alloc.free_count(), 10);
@@ -40,12 +59,14 @@ mod frame_allocator_tests {
 
     #[test]
     fn allocate_returns_none_when_empty() {
+        let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
         assert_eq!(alloc.allocate(), None);
     }
 
     #[test]
     fn deallocate_returns_frame() {
+        let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
         alloc.mark_region_free(0, 4096);
         let addr = alloc.allocate().unwrap();
@@ -57,6 +78,7 @@ mod frame_allocator_tests {
 
     #[test]
     fn mark_region_used_reduces_count() {
+        let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
         alloc.mark_region_free(0, 4096 * 10);
         assert_eq!(alloc.free_count(), 10);
@@ -606,13 +628,19 @@ mod fat32_tests {
     #[test]
     fn parse_mbr_empty_partition() {
         let data = [0u8; 16];
-        assert!(PartitionEntry::parse(&data).is_none(), "zeroed partition should be None");
+        assert!(
+            PartitionEntry::parse(&data).is_none(),
+            "zeroed partition should be None"
+        );
     }
 
     #[test]
     fn parse_boot_sector_invalid_signature() {
         let data = [0u8; 512];
-        assert!(Fat32BootSector::parse(&data).is_none(), "missing 0x55AA signature");
+        assert!(
+            Fat32BootSector::parse(&data).is_none(),
+            "missing 0x55AA signature"
+        );
     }
 
     #[test]
@@ -620,7 +648,7 @@ mod fat32_tests {
         let mut data = [0u8; 512];
         data[510] = 0x55;
         data[511] = 0xAA;
-        
+
         // Bytes per sector
         data[11..13].copy_from_slice(&512u16.to_le_bytes());
         // Sectors per cluster
@@ -633,11 +661,11 @@ mod fat32_tests {
         data[32..36].copy_from_slice(&200000u32.to_le_bytes());
         // Sectors per FAT 32
         data[36..40].copy_from_slice(&1000u32.to_le_bytes());
-        
+
         // Volume label "BRANE_OS   "
         let label = b"BRANE_OS   ";
         data[71..82].copy_from_slice(label);
-        
+
         // FS Type "FAT32   "
         let fstype = b"FAT32   ";
         data[82..90].copy_from_slice(fstype);

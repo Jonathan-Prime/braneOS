@@ -1,5 +1,5 @@
-use std::process::Command;
 use std::env;
+use std::process::Command;
 
 fn main() {
     // Read the kernel path passed by the Makefile
@@ -49,17 +49,20 @@ fn main() {
         }
     }
 
-    // Use BIOS image by default for better compatibility across platforms 
+    // Use BIOS image by default for better compatibility across platforms
     // unless an EFI firmware path is provided.
-    qemu.arg("-drive").arg(format!("format=raw,file={}", bios_path));
-    
+    qemu.arg("-drive")
+        .arg(format!("format=raw,file={}", bios_path));
+
     qemu.arg("-m").arg("256M");
     qemu.arg("-serial").arg("stdio"); // Redirect serial to terminal
-    
+
     // Networking
     qemu.arg("-netdev").arg("user,id=n0");
     qemu.arg("-device").arg("virtio-net-pci,netdev=n0");
 
-    let mut child = qemu.spawn().expect("Failed to start QEMU. Is it installed and in your PATH?");
+    let mut child = qemu
+        .spawn()
+        .expect("Failed to start QEMU. Is it installed and in your PATH?");
     child.wait().unwrap();
 }

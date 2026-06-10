@@ -43,16 +43,19 @@ static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
 struct Gdt {
     table: GlobalDescriptorTable,
     kernel_code_selector: SegmentSelector,
+    kernel_data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
 }
 
 static GDT: Lazy<Gdt> = Lazy::new(|| {
     let mut gdt = GlobalDescriptorTable::new();
     let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
+    let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
     Gdt {
         table: gdt,
         kernel_code_selector,
+        kernel_data_selector,
         tss_selector,
     }
 });
@@ -61,12 +64,15 @@ static GDT: Lazy<Gdt> = Lazy::new(|| {
 ///
 /// Must be called once during early kernel init, before the IDT.
 pub fn init() {
-    use x86_64::instructions::segmentation::{Segment, CS};
+    use x86_64::instructions::segmentation::{Segment, CS, DS, ES, SS};
     use x86_64::instructions::tables::load_tss;
 
     GDT.table.load();
     unsafe {
         CS::set_reg(GDT.kernel_code_selector);
+        DS::set_reg(GDT.kernel_data_selector);
+        ES::set_reg(GDT.kernel_data_selector);
+        SS::set_reg(GDT.kernel_data_selector);
         load_tss(GDT.tss_selector);
     }
 }

@@ -145,7 +145,7 @@ impl Task {
         let stack_ptr = Box::into_raw(stack_box);
 
         // Build the initial context pointing to entry.
-        let ctx = TaskContext::new_task(stack_top, entry as u64);
+        let ctx = TaskContext::new_task(stack_top, entry as usize as u64);
 
         Self {
             id,
@@ -248,12 +248,10 @@ impl Scheduler {
 
     /// Block a task (move it to Blocked state).
     pub fn block_task(&mut self, id: TaskId) -> bool {
-        for slot in self.tasks.iter_mut() {
-            if let Some(task) = slot {
-                if task.id == id {
-                    task.state = TaskState::Blocked;
-                    return true;
-                }
+        for task in self.tasks.iter_mut().flatten() {
+            if task.id == id {
+                task.state = TaskState::Blocked;
+                return true;
             }
         }
         false
@@ -261,12 +259,10 @@ impl Scheduler {
 
     /// Unblock a task (move it back to Ready).
     pub fn unblock_task(&mut self, id: TaskId) -> bool {
-        for slot in self.tasks.iter_mut() {
-            if let Some(task) = slot {
-                if task.id == id && task.state == TaskState::Blocked {
-                    task.state = TaskState::Ready;
-                    return true;
-                }
+        for task in self.tasks.iter_mut().flatten() {
+            if task.id == id && task.state == TaskState::Blocked {
+                task.state = TaskState::Ready;
+                return true;
             }
         }
         false

@@ -6,6 +6,7 @@
 #   1. Kernel compiles for x86_64-unknown-none
 #   2. Code formatting (rustfmt)
 #   3. Lints (clippy)
+#   4. Kernel unit tests
 # ============================================================
 
 name: CI
@@ -97,3 +98,34 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings
+
+      - name: Run Runner Clippy
+        run: cargo clippy -p runner --all-targets -- -D warnings
+
+  # -----------------------------------------------------------------
+  # Tests — host-side unit tests for kernel logic
+  # -----------------------------------------------------------------
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-tests-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tests-
+
+      - name: Run kernel unit tests
+        run: cargo test -p brane_os_kernel --lib

@@ -35,7 +35,7 @@
 | Keyboard (PS/2) | ✅ | Scancode decoding con `pc-keyboard` |
 | Timer interrupt | ✅ | PIT ~18.2 Hz |
 | Makefile + QEMU runner | ✅ | `build`, `run`, `test`, `clean` |
-| GitHub Actions CI | ✅ | Build (debug+release), `rustfmt`, `clippy -D warnings` |
+| GitHub Actions CI | ✅ | Build (debug+release), `rustfmt`, kernel+runner `clippy -D warnings`, unit tests |
 | Documentación base | ✅ | ARCHITECTURE, SECURITY_MODEL, AI_SUBSYSTEM, ROADMAP, TEST_PLAN |
 
 ---
@@ -198,9 +198,9 @@
 |---------|-------|
 | **Módulos del kernel** | 32 |
 | **Líneas de código (Rust)** | ~9,500 |
-| **Unit tests** | 70 |
+| **Unit tests** | 71 |
 | **Syscalls definidas** | 24 |
-| **CI checks** | 3 (build, fmt, clippy) |
+| **CI checks** | 4 jobs (build, fmt, clippy, unit tests) |
 | **Fases completadas** | 9 de 10 |
 
 ---

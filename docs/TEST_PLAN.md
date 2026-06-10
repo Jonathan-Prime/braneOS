@@ -1,7 +1,7 @@
 # TEST_PLAN.md — Brane OS
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
-> Estado: **Borrador inicial**.
+> Estado: **Activo**.
 
 ---
 
@@ -96,18 +96,36 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 
 ---
 
-## 4. Convenciones
+## 4. Estado actual de CI
+
+GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
+
+| Check | Estado | Comando |
+|-------|--------|---------|
+| Kernel debug build | Activo | `cargo build -p brane_os_kernel --target x86_64-unknown-none` |
+| Kernel release build | Activo | `cargo build -p brane_os_kernel --target x86_64-unknown-none --release` |
+| Formatting | Activo | `cargo fmt --all -- --check` |
+| Kernel clippy | Activo | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
+| Runner clippy | Activo | `cargo clippy -p runner --all-targets -- -D warnings` |
+| Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
+
+La validación local equivalente recomendada está documentada en
+[`RUNBOOK.md`](RUNBOOK.md).
+
+---
+
+## 5. Convenciones
 
 - Todo módulo nuevo debe incluir tests unitarios.
 - Los tests de seguridad son obligatorios para cambios en política/capacidades.
-- Los boot tests se ejecutan en cada PR.
+- Los boot tests deberán ejecutarse en cada PR cuando exista el harness QEMU.
 - Los e2e tests se ejecutan antes de cada release.
 
 ---
 
-## 5. Próximos pasos
+## 6. Próximos pasos
 
-1. Configurar `cargo test` para el workspace.
-2. Crear primer boot test (verifica banner serial).
+1. Crear primer boot test automatizado con QEMU y timeout.
+2. Verificar banner serial y prompt `brane>` desde CI.
 3. Crear test de denegación de capability.
-4. Establecer CI pipeline básico.
+4. Agregar pruebas e2e mínimas sobre `brsh`.

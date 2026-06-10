@@ -10,8 +10,8 @@
 
 extern crate alloc;
 
-use crate::socket::{self, Protocol, SocketError};
 use crate::brane_session::BraneSession;
+use crate::socket::{self, Protocol, SocketError};
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
@@ -154,7 +154,11 @@ impl DiscoverySubsystem {
 
     /// Initiate a Brane Protocol v2 handshake with a peer over TCP.
     /// Called after discovering a peer via UDP.
-    pub fn initiate_handshake(&mut self, peer_ip: [u8; 4], peer_port: u16) -> Result<u32, SocketError> {
+    pub fn initiate_handshake(
+        &mut self,
+        peer_ip: [u8; 4],
+        peer_port: u16,
+    ) -> Result<u32, SocketError> {
         // Create a TCP socket
         let mut table = socket::SOCKET_TABLE.lock();
         let tcp_socket_id = table.create(Protocol::Tcp, 1)?;

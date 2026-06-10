@@ -53,23 +53,23 @@ impl From<SessionError> for &'static str {
 pub struct CapabilityOffer {
     pub name: String,
     pub permissions_bits: u32,
-    pub risk_level: u8,  // 0=Low, 1=Medium, 2=High, 3=Critical
+    pub risk_level: u8, // 0=Low, 1=Medium, 2=High, 3=Critical
 }
 
 impl CapabilityOffer {
     fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        
+
         // Name length (1 byte) + name
         buf.push(self.name.len() as u8);
         buf.extend_from_slice(self.name.as_bytes());
-        
+
         // Permissions (4 bytes)
         buf.extend_from_slice(&self.permissions_bits.to_le_bytes());
-        
+
         // Risk level (1 byte)
         buf.push(self.risk_level);
-        
+
         buf
     }
 
@@ -349,7 +349,7 @@ impl BraneSession {
     /// This is the first step: client sends ephemeral public key to server.
     pub fn build_handshake_init(&mut self) -> SessionPacket {
         crate::serial_println!("[session] Building HandshakeInit packet...");
-        
+
         let mut payload = Vec::new();
         // Send 32-byte X25519 public key
         payload.extend_from_slice(&self.ephemeral_key.public.to_bytes());
@@ -434,18 +434,18 @@ impl BraneSession {
         // Offer default capabilities (server-side perspective)
         neg.offered.push(CapabilityOffer {
             name: "BRANE_CONNECT".into(),
-            permissions_bits: (1u32 << 7),  // BRANE_CONNECT = bit 7
-            risk_level: 1,  // Medium
+            permissions_bits: (1u32 << 7), // BRANE_CONNECT = bit 7
+            risk_level: 1,                 // Medium
         });
         neg.offered.push(CapabilityOffer {
             name: "IPC_SEND".into(),
-            permissions_bits: (1u32 << 5),  // IPC_SEND = bit 5
-            risk_level: 0,  // Low
+            permissions_bits: (1u32 << 5), // IPC_SEND = bit 5
+            risk_level: 0,                 // Low
         });
         neg.offered.push(CapabilityOffer {
             name: "IPC_RECV".into(),
-            permissions_bits: (1u32 << 6),  // IPC_RECV = bit 6
-            risk_level: 0,  // Low
+            permissions_bits: (1u32 << 6), // IPC_RECV = bit 6
+            risk_level: 0,                 // Low
         });
 
         crate::serial_println!(
@@ -475,8 +475,8 @@ impl BraneSession {
             payload.len()
         );
 
-        let neg = CapabilityNegotiation::from_bytes(payload)
-            .ok_or(SessionError::SerializationError)?;
+        let neg =
+            CapabilityNegotiation::from_bytes(payload).ok_or(SessionError::SerializationError)?;
 
         self.remote_node_id = Some(neg.node_id);
 
@@ -539,10 +539,13 @@ impl BraneSession {
         // Get nonce BEFORE borrowing crypto_engine to avoid borrow conflict
         let nonce = self.get_tx_nonce();
 
-        let engine = self.crypto_engine.as_ref()
+        let engine = self
+            .crypto_engine
+            .as_ref()
             .ok_or(SessionError::CryptoEngineNotReady)?;
 
-        let ciphertext = engine.encrypt(&nonce, data)
+        let ciphertext = engine
+            .encrypt(&nonce, data)
             .ok_or(SessionError::DecryptionFailed)?;
 
         crate::serial_println!(
@@ -567,10 +570,13 @@ impl BraneSession {
         // Get nonce BEFORE borrowing crypto_engine to avoid borrow conflict
         let nonce = self.get_rx_nonce();
 
-        let engine = self.crypto_engine.as_ref()
+        let engine = self
+            .crypto_engine
+            .as_ref()
             .ok_or(SessionError::CryptoEngineNotReady)?;
 
-        let plaintext = engine.decrypt(&nonce, data)
+        let plaintext = engine
+            .decrypt(&nonce, data)
             .ok_or(SessionError::DecryptionFailed)?;
 
         crate::serial_println!(
@@ -650,7 +656,10 @@ mod tests {
 
     #[test]
     fn test_capability_negotiation_serialization() {
-        let mut neg = CapabilityNegotiation::new([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 1234567890);
+        let mut neg = CapabilityNegotiation::new(
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            1234567890,
+        );
 
         neg.offered.push(CapabilityOffer {
             name: "CAP1".into(),
@@ -707,9 +716,7 @@ mod tests {
         let _ = session.process_handshake_response(&peer_handshake.payload);
 
         // Now capability exchange
-        let node_id = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-        ];
+        let node_id = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let _cap_pkt = session
             .build_capability_exchange(node_id)
             .expect("Failed to build cap exchange");
