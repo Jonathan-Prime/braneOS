@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
 > Estado: **Activo** — se actualiza conforme el proyecto avanza.  
-> Última actualización: **2026-03-12**
+> Última actualización: **2026-06-09**
 
 ---
 
@@ -176,7 +176,8 @@
 | Componente | Estado | Prioridad | Notas |
 |-----------|--------|-----------|-------|
 | Context switching real | ✅ | ALTA | Coop: save/restore registers (r12-r15, rbx, rbp, rsp) |
-| User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
+| **Boot test automatizado (QEMU)** | ✅ | ALTA | `tests/boot/test_boot.py` + CI job `boot-test`, timeout 60 s |
+| **Empaquetado ISO booteable** | ✅ | ALTA | `tools/make_iso.sh` + GRUB cfg, `make iso` / `make release` |
 | User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
 | Señales (SIGTERM, SIGKILL, etc.) | 🔲 | ALTA | Signal handling POSIX-like |
 | Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler |
@@ -184,7 +185,7 @@
 | USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
 | GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
 | Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
-| Test suite completa | 🔲 | ALTA | Integration tests, stress tests, fuzzing |
+| Test suite completa | 🔄 | ALTA | Integration tests, stress tests, fuzzing |
 | Documentación de API | 🔲 | MEDIA | `cargo doc`, guías de contribución |
 | Release v1.0 | 🔲 | — | ISO booteable + documentación |
 
@@ -200,8 +201,8 @@
 | **Líneas de código (Rust)** | ~9,500 |
 | **Unit tests** | 71 |
 | **Syscalls definidas** | 24 |
-| **CI checks** | 4 jobs (build, fmt, clippy, unit tests) |
-| **Fases completadas** | 9 de 10 |
+| **CI checks** | 5 jobs (build, fmt, clippy, unit tests, boot-test) |
+| **Fases completadas** | 9 de 10 (Fase 10 en progreso) |
 
 ---
 

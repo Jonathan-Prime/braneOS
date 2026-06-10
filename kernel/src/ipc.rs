@@ -181,7 +181,7 @@ pub struct IpcManager {
 }
 
 impl IpcManager {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         const QUEUE: MessageQueue = MessageQueue::new();
         Self {
             queues: [QUEUE; MAX_QUEUES],

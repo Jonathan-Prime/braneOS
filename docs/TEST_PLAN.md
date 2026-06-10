@@ -1,7 +1,8 @@
 # TEST_PLAN.md — Brane OS
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
-> Estado: **Activo**.
+> Estado: **Activo**.  
+> Última actualización: **2026-06-09**
 
 ---
 
@@ -108,6 +109,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Kernel clippy | Activo | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
 | Runner clippy | Activo | `cargo clippy -p runner --all-targets -- -D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
+| **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (timeout 60 s, tcg) |
 
 La validación local equivalente recomendada está documentada en
 [`RUNBOOK.md`](RUNBOOK.md).
@@ -125,7 +127,9 @@ La validación local equivalente recomendada está documentada en
 
 ## 6. Próximos pasos
 
-1. Crear primer boot test automatizado con QEMU y timeout.
-2. Verificar banner serial y prompt `brane>` desde CI.
+1. ~~Crear primer boot test automatizado con QEMU y timeout.~~ ✅ **Completado** (`tests/boot/test_boot.py` + CI job `boot-test`)
+2. ~~Verificar banner serial y prompt `brane>` desde CI.~~ ✅ **Completado** (cadenas requeridas: `"Brane OS"` + `"brane>"`)
 3. Crear test de denegación de capability.
 4. Agregar pruebas e2e mínimas sobre `brsh`.
+5. Integration tests: syscall → servicio, proceso → capability broker.
+6. Stress tests y fuzzing de componentes críticos.

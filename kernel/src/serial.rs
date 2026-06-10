@@ -35,7 +35,7 @@ macro_rules! serial_print {
         #[cfg(not(test))]
         $crate::serial::_serial_print(format_args!($($arg)*));
         #[cfg(test)]
-        let _ = format_args!($($arg)*);
+        std::print!("{}", format_args!($($arg)*));
     };
 }
 

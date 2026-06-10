@@ -6,7 +6,7 @@ KERNEL_BIN := target/x86_64-unknown-none/debug/brane_os_kernel
 KERNEL_RELEASE := target/x86_64-unknown-none/release/brane_os_kernel
 BUILD_FLAGS := -Z build-std=core,compiler_builtins,alloc -Z build-std-features=compiler-builtins-mem --target x86_64-unknown-none
 
-.PHONY: build build-release run run-release test fmt clippy clean help
+.PHONY: build build-release run run-release test fmt clippy boot-test iso release clean help
 
 # --- Build -------------------------------------------------------------------
 
@@ -41,6 +41,23 @@ test: ## Run unit tests (host-side)
 clean: ## Remove build artifacts
 	cargo clean
 	rm -f *.img *.iso *.bin
+	rm -rf dist/
+
+# --- Testing -----------------------------------------------------------------
+
+boot-test: build ## Run automated boot test in QEMU (60 s timeout)
+	python3 tests/boot/test_boot.py
+
+# --- Release / Packaging -----------------------------------------------------
+
+iso: build-release ## Build booteable ISO (requires xorriso)
+	chmod +x tools/make_iso.sh
+	./tools/make_iso.sh
+
+release: iso ## Full release: ISO + SHA256 checksum + tar.gz archive
+	@echo ""
+	@echo "Release artifacts in dist/:"
+	@ls -lh dist/
 
 # --- Help --------------------------------------------------------------------
 

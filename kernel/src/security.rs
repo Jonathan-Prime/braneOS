@@ -147,6 +147,12 @@ impl CapabilityManager {
                     scope,
                     risk_level
                 );
+                crate::audit::AUDIT.lock().record(
+                    owner,
+                    crate::audit::AuditAction::CapabilityGranted(id),
+                    None,
+                    crate::audit::AuditResult::Success,
+                );
                 return Ok(id);
             }
         }
@@ -174,9 +180,21 @@ impl CapabilityManager {
             if let Some(cap) = slot {
                 if cap.id == cap_id {
                     if !cap.revocable {
+                        crate::audit::AUDIT.lock().record(
+                            cap.owner,
+                            crate::audit::AuditAction::CapabilityRevoked(cap_id),
+                            None,
+                            crate::audit::AuditResult::Denied,
+                        );
                         return Err(CapError::PermissionDenied);
                     }
                     crate::serial_println!("[cap]  Revoked cap #{}", cap_id);
+                    crate::audit::AUDIT.lock().record(
+                        cap.owner,
+                        crate::audit::AuditAction::CapabilityRevoked(cap_id),
+                        None,
+                        crate::audit::AuditResult::Success,
+                    );
                     *slot = None;
                     return Ok(());
                 }

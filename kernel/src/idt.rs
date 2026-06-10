@@ -12,7 +12,7 @@
 use spin::Lazy;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-use crate::gdt;
+use brane_os_kernel::gdt;
 use crate::halt_loop;
 use crate::pic;
 use brane_os_kernel::serial_println;

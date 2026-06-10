@@ -62,6 +62,11 @@ pub enum SyscallNumber {
     BraneConnect = 61,
     BraneSend = 62,
     BraneRecv = 63,
+
+    // --- Signals (70–79) ---
+    Kill = 70,
+    SigAction = 71,
+    SigReturn = 72,
 }
 
 impl SyscallNumber {
@@ -92,6 +97,9 @@ impl SyscallNumber {
             61 => Some(Self::BraneConnect),
             62 => Some(Self::BraneSend),
             63 => Some(Self::BraneRecv),
+            70 => Some(Self::Kill),
+            71 => Some(Self::SigAction),
+            72 => Some(Self::SigReturn),
             _ => None,
         }
     }
@@ -186,7 +194,7 @@ pub fn dispatch(ctx: &SyscallContext) -> SyscallResult {
         ctx.arg3
     );
 
-    match syscall {
+    let mut result = match syscall {
         // --- Process ---
         SyscallNumber::Exit => handle_exit(ctx),
         SyscallNumber::Yield => handle_yield(ctx),
@@ -203,12 +211,44 @@ pub fn dispatch(ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::GetTime => handle_get_time(ctx),
         SyscallNumber::GetSystemInfo => handle_get_system_info(ctx),
 
+        // --- Signals ---
+        SyscallNumber::Kill => handle_kill(ctx),
+        SyscallNumber::SigAction => handle_sigaction(ctx),
+        SyscallNumber::SigReturn => handle_sigreturn(ctx),
+
         // --- Unimplemented ---
         _ => {
             crate::serial_println!("[syscall] {:?} not yet implemented", syscall);
             SyscallResult::Err(SyscallError::InvalidSyscall)
         }
+    };
+
+    // Deliver pending signals if any (unless Exit or SigReturn)
+    if syscall != SyscallNumber::Exit && syscall != SyscallNumber::SigReturn {
+        if let Some(pid) = get_current_pid() {
+            let mut sig_mgr = crate::signal::SIGNAL_MANAGER.lock();
+            if let Some((sig, handler_addr)) = sig_mgr.deliver_pending(pid) {
+                let user_context_ptr = (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
+                unsafe {
+                    let mut p_table = crate::process::PROCESS_TABLE.lock();
+                    if let Some(proc) = p_table.get_mut(pid) {
+                        proc.saved_context = Some(*user_context_ptr);
+                    }
+                    
+                    if let Some(ref mut saved) = p_table.get_mut(pid).and_then(|p| p.saved_context.as_mut()) {
+                        saved.rax = result.to_raw() as u64;
+                    }
+
+                    let user_ctx = &mut *user_context_ptr;
+                    user_ctx.rcx = handler_addr; // redirect userspace RIP
+                    user_ctx.rdi = sig as u64;   // signal number as first arg
+                    result = SyscallResult::Ok(0);
+                }
+            }
+        }
     }
+
+    result
 }
 
 // -----------------------------------------------------------------------
@@ -274,4 +314,75 @@ fn handle_get_system_info(_ctx: &SyscallContext) -> SyscallResult {
     let scheduler = crate::sched::SCHEDULER.lock();
     let active = scheduler.active_count() as u64;
     SyscallResult::Ok(active)
+}
+
+/// Helper to get current running process PID.
+pub fn get_current_pid() -> Option<u64> {
+    let task_id = crate::sched::SCHEDULER.lock().current_task()?.id;
+    let p_table = crate::process::PROCESS_TABLE.lock();
+    p_table.get_pid_by_task_id(task_id)
+}
+
+fn handle_kill(ctx: &SyscallContext) -> SyscallResult {
+    let pid = ctx.arg1;
+    let sig_val = ctx.arg2 as u8;
+    match crate::signal::Signal::try_from(sig_val) {
+        Ok(sig) => {
+            match crate::signal::SIGNAL_MANAGER.lock().send(pid, sig) {
+                Ok(_) => SyscallResult::Ok(0),
+                Err(_) => SyscallResult::Err(SyscallError::NotFound),
+            }
+        }
+        Err(_) => SyscallResult::Err(SyscallError::InvalidArgument),
+    }
+}
+
+fn handle_sigaction(ctx: &SyscallContext) -> SyscallResult {
+    let sig_val = ctx.arg1 as u8;
+    let handler_addr = ctx.arg2;
+    
+    let current_pid = match get_current_pid() {
+        Some(pid) => pid,
+        None => return SyscallResult::Err(SyscallError::Internal),
+    };
+
+    match crate::signal::Signal::try_from(sig_val) {
+        Ok(sig) => {
+            let action = if handler_addr == 0 {
+                crate::signal::SignalAction::Default
+            } else if handler_addr == 1 {
+                crate::signal::SignalAction::Ignore
+            } else {
+                crate::signal::SignalAction::Handler(handler_addr)
+            };
+
+            match crate::signal::SIGNAL_MANAGER.lock().set_action(current_pid, sig, action) {
+                Ok(_) => SyscallResult::Ok(0),
+                Err(_) => SyscallResult::Err(SyscallError::InvalidArgument),
+            }
+        }
+        Err(_) => SyscallResult::Err(SyscallError::InvalidArgument),
+    }
+}
+
+fn handle_sigreturn(ctx: &SyscallContext) -> SyscallResult {
+    let current_pid = match get_current_pid() {
+        Some(pid) => pid,
+        None => return SyscallResult::Err(SyscallError::Internal),
+    };
+    
+    let mut p_table = crate::process::PROCESS_TABLE.lock();
+    if let Some(proc) = p_table.get_mut(current_pid) {
+        if let Some(saved) = proc.saved_context.take() {
+            unsafe {
+                let user_context_ptr = (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
+                *user_context_ptr = saved;
+                SyscallResult::Ok(saved.rax)
+            }
+        } else {
+            SyscallResult::Err(SyscallError::InvalidArgument)
+        }
+    } else {
+        SyscallResult::Err(SyscallError::NotFound)
+    }
 }

@@ -29,7 +29,6 @@ entry_point!(kernel_main, config = &CONFIG);
 use core::panic::PanicInfo;
 
 // --- Hardware-specific modules (binary-only, not in lib) ---
-mod gdt;
 mod idt;
 mod keyboard;
 mod pic;
@@ -37,8 +36,8 @@ mod pic;
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::serial_println;
 use brane_os_kernel::{
-    ai, audit, brane, dns, framebuffer, ipc, memory, module_loader, net, process, ramfs, sched,
-    security, serial, shell, socket, syscall, tty, vfs,
+    ai, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process, ramfs, sched,
+    security, serial, shell, socket, syscall, tty, usermode, vfs,
 };
 
 // -----------------------------------------------------------------------
@@ -106,6 +105,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     idt::init();
     // idt::init() prints its own message
+
+    usermode::init_syscall_msrs();
 
     pic::init();
     // pic::init() prints its own message

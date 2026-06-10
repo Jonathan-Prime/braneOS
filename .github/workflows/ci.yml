@@ -7,6 +7,7 @@
 #   2. Code formatting (rustfmt)
 #   3. Lints (clippy)
 #   4. Kernel unit tests
+#   5. Boot test — QEMU serial output verification (60 s timeout)
 # ============================================================
 
 name: CI
@@ -129,3 +130,42 @@ jobs:
 
       - name: Run kernel unit tests
         run: cargo test -p brane_os_kernel --lib
+
+  # -----------------------------------------------------------------
+  # Boot Test — run Brane OS in QEMU and verify serial output
+  # -----------------------------------------------------------------
+  boot-test:
+    name: Boot Test (QEMU)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools-preview
+          targets: x86_64-unknown-none
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-boot-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-boot-
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+
+      - name: Run boot test
+        timeout-minutes: 2
+        env:
+          BOOT_TIMEOUT: "60"
+        run: python3 tests/boot/test_boot.py

@@ -76,6 +76,9 @@ pub struct Process {
     pub cpu_ticks: u64,
     /// Number of syscalls issued.
     pub syscall_count: u64,
+    pub signal_pending: u64,
+    pub signal_blocked: u64,
+    pub saved_context: Option<crate::usermode::UserContext>,
 }
 
 impl Process {
@@ -145,6 +148,9 @@ impl ProcessTable {
                     exit_code: 0,
                     cpu_ticks: 0,
                     syscall_count: 0,
+                    signal_pending: 0,
+                    signal_blocked: 0,
+                    saved_context: None,
                 });
 
                 crate::serial_println!("[proc] Created process '{}' (pid={})", name, pid);
@@ -192,6 +198,23 @@ impl ProcessTable {
     /// Get a mutable reference to a process by PID.
     pub fn get_mut(&mut self, pid: Pid) -> Option<&mut Process> {
         self.processes.iter_mut().flatten().find(|p| p.pid == pid)
+    }
+
+    /// Find slot index for a PID.
+    pub fn slot_of(&self, pid: Pid) -> Option<usize> {
+        self.processes.iter().enumerate().find_map(|(idx, opt_p)| {
+            if let Some(p) = opt_p {
+                if p.pid == pid {
+                    return Some(idx);
+                }
+            }
+            None
+        })
+    }
+
+    /// Get PID of process associated with scheduler TaskId.
+    pub fn get_pid_by_task_id(&self, task_id: TaskId) -> Option<Pid> {
+        self.processes.iter().flatten().find(|p| p.scheduler_task == task_id).map(|p| p.pid)
     }
 
     /// List all non-terminated processes.

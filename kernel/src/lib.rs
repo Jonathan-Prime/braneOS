@@ -37,6 +37,9 @@ pub mod syscall;
 pub mod tty;
 pub mod vfs;
 pub mod virtio;
+pub mod gdt;
+pub mod usermode;
+pub mod signal;
 
 #[cfg(test)]
 mod tests;

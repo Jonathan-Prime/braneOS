@@ -45,6 +45,8 @@ struct Gdt {
     kernel_code_selector: SegmentSelector,
     kernel_data_selector: SegmentSelector,
     tss_selector: SegmentSelector,
+    user_data_selector: SegmentSelector,
+    user_code_selector: SegmentSelector,
 }
 
 static GDT: Lazy<Gdt> = Lazy::new(|| {
@@ -52,11 +54,17 @@ static GDT: Lazy<Gdt> = Lazy::new(|| {
     let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
     let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
+    // Ring-3 segments: data MUST come before code so STAR[63:48] points
+    // to the data selector and STAR[63:48]+8 lands on the code selector.
+    let user_data_selector = gdt.append(Descriptor::user_data_segment());
+    let user_code_selector = gdt.append(Descriptor::user_code_segment());
     Gdt {
         table: gdt,
         kernel_code_selector,
         kernel_data_selector,
         tss_selector,
+        user_data_selector,
+        user_code_selector,
     }
 });
 
@@ -75,4 +83,19 @@ pub fn init() {
         SS::set_reg(GDT.kernel_data_selector);
         load_tss(GDT.tss_selector);
     }
+}
+
+/// Raw selector value for ring-0 code segment (used in STAR MSR).
+pub fn kernel_code_selector() -> u16 {
+    GDT.kernel_code_selector.0
+}
+
+/// Raw selector value for ring-3 data segment (used in STAR MSR).
+pub fn user_data_selector() -> u16 {
+    GDT.user_data_selector.0
+}
+
+/// Raw selector value for ring-3 code segment (used in iretq trampoline).
+pub fn user_code_selector() -> u16 {
+    GDT.user_code_selector.0
 }
