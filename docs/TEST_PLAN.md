@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
 > Estado: **Activo**.  
-> Última actualización: **2026-06-09**
+> Última actualización: **2026-06-18**
 
 ---
 
@@ -129,7 +129,21 @@ La validación local equivalente recomendada está documentada en
 
 1. ~~Crear primer boot test automatizado con QEMU y timeout.~~ ✅ **Completado** (`tests/boot/test_boot.py` + CI job `boot-test`)
 2. ~~Verificar banner serial y prompt `brane>` desde CI.~~ ✅ **Completado** (cadenas requeridas: `"Brane OS"` + `"brane>"`)
-3. Crear test de denegación de capability.
-4. Agregar pruebas e2e mínimas sobre `brsh`.
-5. Integration tests: syscall → servicio, proceso → capability broker.
+3. ~~Crear test de denegación de capability.~~ ✅ **Completado** (`tests/security/test_capability_denial.py` + `security_capability_tests` en `tests.rs`)
+4. ~~Agregar pruebas e2e mínimas sobre `brsh`.~~ ✅ **Completado** (`tests/e2e/test_brsh_commands.py` + `test_full_boot_flow.py`)
+5. ~~Integration tests: syscall → servicio, proceso → capability broker.~~ ✅ **Completado** (`tests/integration/` + `integration_syscall_tests` en `tests.rs`)
 6. Stress tests y fuzzing de componentes críticos.
+7. Agregar jobs de CI para los nuevos harnesses Python (security, integration, e2e).
+8. Release v1.0: ISO booteable + documentación API publicada.
+
+## 7. Make targets disponibles
+
+| Target | Descripción |
+|--------|-------------|
+| `make test` | Unit tests en host (sin QEMU) |
+| `make boot-test` | Boot test en QEMU (60 s) |
+| `make security-test` | Security tests en QEMU |
+| `make integration-test` | Integration tests en QEMU |
+| `make e2e-test` | E2E tests en QEMU |
+| `make test-all` | Suite completa (unit → boot → security → integration → e2e) |
+| `make docs` | Genera API docs con `cargo doc` |

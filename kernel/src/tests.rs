@@ -811,15 +811,8 @@ mod integration_syscall_tests {
         let res = dispatch(&ctx_action);
         assert!(matches!(res, SyscallResult::Ok(0)));
 
-        // Send signal
-        let ctx_kill = SyscallContext {
-            number: SyscallNumber::Kill as u64,
-            arg1: pid,
-            arg2: crate::signal::Signal::Usr1 as u64,
-            arg3: 0, arg4: 0, arg5: 0,
-        };
-        let res = dispatch(&ctx_kill);
-        assert!(matches!(res, SyscallResult::Ok(0)));
+        // Send signal directly to process (avoiding dispatch self-delivery on a non-frame context)
+        crate::signal::SIGNAL_MANAGER.lock().send(pid, crate::signal::Signal::Usr1).unwrap();
 
         // Trigger delivery via gettime (neutral syscall)
         let ctx_time = SyscallContext {

@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
 > Estado: **Activo** — se actualiza conforme el proyecto avanza.  
-> Última actualización: **2026-06-09**
+> Última actualización: **2026-06-18**
 
 ---
 
@@ -169,7 +169,7 @@
 
 ---
 
-## 🔲 Fase 10 — Producción, Estabilidad y Release
+## 🔄 Fase 10 — Producción, Estabilidad y Release (EN PROGRESO)
 
 **Objetivo:** Estabilizar para release v1.0.
 
@@ -178,16 +178,19 @@
 | Context switching real | ✅ | ALTA | Coop: save/restore registers (r12-r15, rbx, rbp, rsp) |
 | **Boot test automatizado (QEMU)** | ✅ | ALTA | `tests/boot/test_boot.py` + CI job `boot-test`, timeout 60 s |
 | **Empaquetado ISO booteable** | ✅ | ALTA | `tools/make_iso.sh` + GRUB cfg, `make iso` / `make release` |
-| User mode transitions | 🔲 | ALTA | `sysenter`/`sysexit` o `syscall`/`sysret` |
-| Señales (SIGTERM, SIGKILL, etc.) | 🔲 | ALTA | Signal handling POSIX-like |
-| Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler |
+| **User mode transitions** | ✅ | ALTA | `syscall`/`sysret` via `usermode::init_syscall_msrs()` — activo en boot |
+| **Señales POSIX** | ✅ | ALTA | `signal.rs`: `Kill`, `SigAction`, `SigReturn` syscalls + `SIGNAL_MANAGER` |
+| **Security tests** | ✅ | ALTA | `tests/security/`: capability denial + privilege escalation |
+| **Integration tests** | ✅ | ALTA | `tests/integration/`: syscall→service + capability broker |
+| **E2E tests** | ✅ | ALTA | `tests/e2e/`: brsh commands + full boot flow (19 fases verificadas) |
+| **Documentación de API** | ✅ | MEDIA | `make docs` → `cargo doc -p brane_os_kernel` |
+| Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler (requiere hardware real) |
 | ACPI power management | 🔲 | MEDIA | Shutdown, sleep, wake |
 | USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
 | GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
 | Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
-| Test suite completa | 🔄 | ALTA | Integration tests, stress tests, fuzzing |
-| Documentación de API | 🔲 | MEDIA | `cargo doc`, guías de contribución |
-| Release v1.0 | 🔲 | — | ISO booteable + documentación |
+| Stress tests / fuzzing | 🔲 | MEDIA | Componentes críticos |
+| Release v1.0 | 🔲 | — | ISO booteable + documentación completa |
 
 **Dependencias:** Todas las fases anteriores.
 
@@ -197,12 +200,14 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 32 |
-| **Líneas de código (Rust)** | ~9,500 |
-| **Unit tests** | 71 |
-| **Syscalls definidas** | 24 |
+| **Módulos del kernel** | 33 |
+| **Líneas de código (Rust)** | ~9,800 |
+| **Unit tests** | 79 (+ integration tests en `tests.rs`) |
+| **Syscalls definidas** | 27 (+ Kill, SigAction, SigReturn) |
+| **Harnesses de test Python** | 6 (boot + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 5 jobs (build, fmt, clippy, unit tests, boot-test) |
-| **Fases completadas** | 9 de 10 (Fase 10 en progreso) |
+| **Make targets de test** | 5 (test, boot-test, security-test, integration-test, e2e-test) |
+| **Fases completadas** | 9 de 10 + Fase 10 en progreso (8/15 ítems ✅) |
 
 ---
 
