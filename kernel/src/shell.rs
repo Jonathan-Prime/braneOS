@@ -15,7 +15,7 @@
 extern crate alloc;
 
 use crate::{
-    ai, audit, brane, dns, memory, module_loader, net, process, sched, security, serial_println,
+    acpi, ai, audit, brane, dns, memory, module_loader, net, process, sched, security, serial_println,
     socket, tty, vfs,
 };
 
@@ -53,6 +53,7 @@ pub fn execute(line: &str) {
         "sockets" => cmd_sockets(),
         "clear" => cmd_clear(),
         "reboot" => cmd_reboot(),
+        "shutdown" | "poweroff" => cmd_shutdown(),
         "sched" => cmd_sched(),
         "yield" => cmd_yield(),
         _ => {
@@ -87,6 +88,7 @@ fn cmd_help() {
     tty::tty_println("  sockets       List open sockets");
     tty::tty_println("  clear         Clear screen");
     tty::tty_println("  reboot        Reboot system");
+    tty::tty_println("  shutdown      Shutdown system");
 }
 
 fn cmd_ps() {

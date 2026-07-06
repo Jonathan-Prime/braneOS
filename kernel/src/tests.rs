@@ -848,6 +848,83 @@ mod integration_syscall_tests {
         let ticks = crate::sched::SCHEDULER.lock().total_ticks();
         assert_eq!(res_return.to_raw(), ticks as i64);
     }
+
+    #[test]
+    fn sigprocmask_flow() {
+        let _guard = INTEGRATION_TEST_LOCK.lock();
+        let (pid, _task_id) = setup_test_process("test_sigprocmask");
+
+        // Set up SIG_BLOCK (1) for SIGUSR1 (10)
+        let mask = 1 << (crate::signal::Signal::Usr1 as u8);
+        let ctx_block = SyscallContext {
+            number: SyscallNumber::SigProcMask as u64,
+            arg1: 1, // SIG_BLOCK
+            arg2: mask,
+            arg3: 0, arg4: 0, arg5: 0,
+        };
+        let res = dispatch(&ctx_block);
+        assert_eq!(res.to_raw(), 0); // old mask was 0
+
+        // Check that signal_blocked is updated
+        {
+            let p_table = crate::process::PROCESS_TABLE.lock();
+            let proc = p_table.get(pid).unwrap();
+            assert_eq!(proc.signal_blocked, mask);
+        }
+
+        // Try to block SIGKILL (9) - should be ignored/filtered out
+        let kill_mask = 1 << (crate::signal::Signal::Kill as u8);
+        let ctx_block_kill = SyscallContext {
+            number: SyscallNumber::SigProcMask as u64,
+            arg1: 1, // SIG_BLOCK
+            arg2: kill_mask,
+            arg3: 0, arg4: 0, arg5: 0,
+        };
+        let res = dispatch(&ctx_block_kill);
+        assert_eq!(res.to_raw(), mask as i64); // old mask was Usr1
+
+        // Check that SIGKILL is NOT blocked
+        {
+            let p_table = crate::process::PROCESS_TABLE.lock();
+            let proc = p_table.get(pid).unwrap();
+            assert_eq!(proc.signal_blocked, mask); // still only Usr1 blocked
+        }
+
+        // Set mask directly using SIG_SETMASK (3) to Usr2 (12)
+        let mask_usr2 = 1 << (crate::signal::Signal::Usr2 as u8);
+        let ctx_set = SyscallContext {
+            number: SyscallNumber::SigProcMask as u64,
+            arg1: 3, // SIG_SETMASK
+            arg2: mask_usr2,
+            arg3: 0, arg4: 0, arg5: 0,
+        };
+        let res = dispatch(&ctx_set);
+        assert_eq!(res.to_raw(), mask as i64); // old mask was Usr1
+
+        // Check that mask is now Usr2
+        {
+            let p_table = crate::process::PROCESS_TABLE.lock();
+            let proc = p_table.get(pid).unwrap();
+            assert_eq!(proc.signal_blocked, mask_usr2);
+        }
+
+        // Unblock SIGUSR2 using SIG_UNBLOCK (2)
+        let ctx_unblock = SyscallContext {
+            number: SyscallNumber::SigProcMask as u64,
+            arg1: 2, // SIG_UNBLOCK
+            arg2: mask_usr2,
+            arg3: 0, arg4: 0, arg5: 0,
+        };
+        let res = dispatch(&ctx_unblock);
+        assert_eq!(res.to_raw(), mask_usr2 as i64); // old mask was Usr2
+
+        // Check that mask is now 0
+        {
+            let p_table = crate::process::PROCESS_TABLE.lock();
+            let proc = p_table.get(pid).unwrap();
+            assert_eq!(proc.signal_blocked, 0);
+        }
+    }
 }
 
 #[cfg(test)]

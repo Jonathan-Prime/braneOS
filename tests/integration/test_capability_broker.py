@@ -114,7 +114,7 @@ def run_cap_broker_test(img_path: Path, timeout: int) -> int:
     cmd = [
         QEMU_BIN, "-m", "256M",
         "-drive", f"format=raw,file={img_path}",
-        "-serial", "stdio", "-nographic", "-no-reboot", "-accel", "tcg",
+        "-serial", "stdio", "-nographic", "-monitor", "none", "-no-reboot", "-accel", "tcg",
     ]
     info(f"Launching QEMU (timeout={timeout}s)")
 
@@ -258,6 +258,7 @@ def parse_args():
 
 
 def main():
+    os.environ["NO_RUN"] = "1"
     args = parse_args()
     start = time.monotonic()
     info(f"Brane OS Capability Broker Test — timeout={args.timeout}s")

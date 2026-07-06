@@ -16,6 +16,7 @@ extern crate std;
 
 pub mod serial;
 
+pub mod acpi;
 pub mod ai;
 pub mod audit;
 pub mod brane;

@@ -29,6 +29,11 @@ fn main() {
     );
 
     // Launch QEMU
+    if env::var("NO_RUN").is_ok() {
+        println!("NO_RUN is set. Skipping QEMU launch.");
+        return;
+    }
+
     println!("Launching QEMU...");
 
     let mut qemu = Command::new("qemu-system-x86_64");

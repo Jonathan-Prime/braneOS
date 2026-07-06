@@ -149,6 +149,7 @@ def run_qemu_test(img_path: Path, timeout: int) -> int:
         "-drive", f"format=raw,file={img_path}",
         "-serial", "stdio",
         "-nographic",         # no display window — pure serial I/O
+        "-monitor", "none",
         "-no-reboot",         # exit on triple fault instead of rebooting
         "-accel", "tcg",      # software emulation — works in any CI/CD
     ]
@@ -250,6 +251,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    os.environ["NO_RUN"] = "1"
     args = parse_args()
     start = time.monotonic()
 

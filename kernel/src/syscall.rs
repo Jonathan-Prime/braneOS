@@ -67,6 +67,7 @@ pub enum SyscallNumber {
     Kill = 70,
     SigAction = 71,
     SigReturn = 72,
+    SigProcMask = 73,
 }
 
 impl SyscallNumber {
@@ -100,6 +101,7 @@ impl SyscallNumber {
             70 => Some(Self::Kill),
             71 => Some(Self::SigAction),
             72 => Some(Self::SigReturn),
+            73 => Some(Self::SigProcMask),
             _ => None,
         }
     }
@@ -215,6 +217,7 @@ pub fn dispatch(ctx: &SyscallContext) -> SyscallResult {
         SyscallNumber::Kill => handle_kill(ctx),
         SyscallNumber::SigAction => handle_sigaction(ctx),
         SyscallNumber::SigReturn => handle_sigreturn(ctx),
+        SyscallNumber::SigProcMask => handle_sigprocmask(ctx),
 
         // --- Unimplemented ---
         _ => {
@@ -382,6 +385,40 @@ fn handle_sigreturn(ctx: &SyscallContext) -> SyscallResult {
         } else {
             SyscallResult::Err(SyscallError::InvalidArgument)
         }
+    } else {
+        SyscallResult::Err(SyscallError::NotFound)
+    }
+}
+
+fn handle_sigprocmask(ctx: &SyscallContext) -> SyscallResult {
+    let how = ctx.arg1;
+    let set = ctx.arg2; // bitmask of signals
+
+    let current_pid = match get_current_pid() {
+        Some(pid) => pid,
+        None => return SyscallResult::Err(SyscallError::Internal),
+    };
+
+    let mut p_table = crate::process::PROCESS_TABLE.lock();
+    if let Some(proc) = p_table.get_mut(current_pid) {
+        let old_mask = proc.signal_blocked;
+        match how {
+            1 => { // SIG_BLOCK
+                proc.signal_blocked |= set;
+            }
+            2 => { // SIG_UNBLOCK
+                proc.signal_blocked &= !set;
+            }
+            3 => { // SIG_SETMASK
+                proc.signal_blocked = set;
+            }
+            _ => return SyscallResult::Err(SyscallError::InvalidArgument),
+        }
+        // SIGKILL and SIGSTOP cannot be blocked
+        let cannot_block = (1 << (crate::signal::Signal::Kill as u8)) | (1 << (crate::signal::Signal::Stop as u8));
+        proc.signal_blocked &= !cannot_block;
+
+        SyscallResult::Ok(old_mask)
     } else {
         SyscallResult::Err(SyscallError::NotFound)
     }

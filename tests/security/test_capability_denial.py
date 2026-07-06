@@ -127,6 +127,7 @@ def run_security_test(img_path: Path, timeout: int) -> int:
         "-drive", f"format=raw,file={img_path}",
         "-serial", "stdio",
         "-nographic",
+        "-monitor", "none",
         "-no-reboot",
         "-accel", "tcg",
     ]
@@ -247,6 +248,7 @@ def parse_args():
 
 
 def main():
+    os.environ["NO_RUN"] = "1"
     args = parse_args()
     start = time.monotonic()
     info(f"Brane OS Capability Denial Test — timeout={args.timeout}s")
