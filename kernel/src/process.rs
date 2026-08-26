@@ -214,7 +214,11 @@ impl ProcessTable {
 
     /// Get PID of process associated with scheduler TaskId.
     pub fn get_pid_by_task_id(&self, task_id: TaskId) -> Option<Pid> {
-        self.processes.iter().flatten().find(|p| p.scheduler_task == task_id).map(|p| p.pid)
+        self.processes
+            .iter()
+            .flatten()
+            .find(|p| p.scheduler_task == task_id)
+            .map(|p| p.pid)
     }
 
     /// List all non-terminated processes.

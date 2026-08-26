@@ -15,8 +15,8 @@
 extern crate alloc;
 
 use crate::{
-    acpi, ai, audit, brane, dns, memory, module_loader, net, process, sched, security, serial_println,
-    socket, tty, vfs,
+    acpi, ai, audit, brane, dns, memory, module_loader, net, process, sched, security,
+    serial_println, socket, tty, vfs,
 };
 
 /// Print the shell prompt.
@@ -466,6 +466,13 @@ fn cmd_clear() {
 
 fn cmd_reboot() {
     tty::tty_println("Rebooting...");
+
+    if acpi::reboot() {
+        loop {
+            x86_64::instructions::hlt();
+        }
+    }
+
     // Triple fault to reboot: load a zero-length IDT and trigger an interrupt
     unsafe {
         // Load invalid IDT
@@ -478,6 +485,11 @@ fn cmd_reboot() {
         // Trigger interrupt → triple fault → reboot
         core::arch::asm!("int3");
     }
+}
+
+fn cmd_shutdown() -> ! {
+    tty::tty_println("Shutting down...");
+    acpi::shutdown()
 }
 
 // -----------------------------------------------------------------------

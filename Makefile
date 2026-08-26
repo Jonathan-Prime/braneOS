@@ -49,7 +49,7 @@ clean: ## Remove build artifacts
 
 # --- Testing -----------------------------------------------------------------
 
-boot-test: build ## Run automated boot test in QEMU (60 s timeout)
+boot-test: build-release ## Run automated release-kernel boot test in QEMU (60 s timeout)
 	python3 tests/boot/test_boot.py
 
 security-test: build ## Security tests: capability denial + privilege escalation

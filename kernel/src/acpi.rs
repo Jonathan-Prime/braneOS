@@ -9,12 +9,15 @@
 // Spec reference: docs/ROADMAP.md Phase 10
 // ============================================================
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::instructions::port::Port;
-use x86_64::VirtAddr;
+
+const DESCRIPTION_HEADER_LEN: usize = core::mem::size_of::<DescriptionHeader>();
+const FADT_LEGACY_PM1_CNT_END: usize = 72;
+const FADT_RESET_VALUE_END: usize = 129;
+const FADT_X_DSDT_END: usize = 148;
+const FADT_X_PM1A_CNT_END: usize = 184;
+const FADT_X_PM1B_CNT_END: usize = 196;
 
 /// Generic Address Structure (GAS) as defined by ACPI
 #[derive(Debug, Clone, Copy)]
@@ -114,8 +117,8 @@ struct Fadt {
 
 #[derive(Debug, Default)]
 struct AcpiState {
-    pm1a_cnt_blk: Option<u32>,
-    pm1b_cnt_blk: Option<u32>,
+    pm1a_cnt_blk: Option<u64>,
+    pm1b_cnt_blk: Option<u64>,
     slp_typa: Option<u8>,
     slp_typb: Option<u8>,
     is_io: bool,
@@ -148,6 +151,11 @@ fn verify_checksum(addr: *const u8, len: usize) -> bool {
 
 /// Initialize the ACPI module using the RSDP physical address and physical memory offset.
 pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
+    if rsdp_phys_addr == 0 {
+        crate::serial_println!("[acpi] RSDP not provided; ACPI disabled.");
+        return;
+    }
+
     let rsdp_virt = physical_memory_offset + rsdp_phys_addr;
     let rsdp = unsafe { &*(rsdp_virt as *const RsdpHeader) };
 
@@ -163,6 +171,16 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
         return;
     }
 
+    if rsdp.revision >= 2 {
+        let rsdp_len = rsdp.length as usize;
+        if rsdp_len < core::mem::size_of::<RsdpHeader>()
+            || !verify_checksum(rsdp_virt as *const u8, rsdp_len)
+        {
+            crate::serial_println!("[acpi] Error: RSDP extended checksum mismatch.");
+            return;
+        }
+    }
+
     // Determine whether to use XSDT (ACPI 2.0+) or RSDT (ACPI 1.0)
     let use_xsdt = rsdp.revision >= 2 && rsdp.xsdt_address != 0;
     let mut fadt_opt: Option<&'static Fadt> = None;
@@ -170,14 +188,26 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     if use_xsdt {
         let xsdt_virt = physical_memory_offset + rsdp.xsdt_address;
         let xsdt = unsafe { &*(xsdt_virt as *const DescriptionHeader) };
-        if &xsdt.signature == b"XSDT" && verify_checksum(xsdt_virt as *const u8, xsdt.length as usize) {
-            let entries_count = (xsdt.length as usize - 36) / 8;
-            let entries_ptr = (xsdt_virt + 36) as *const u64;
+        let xsdt_len = xsdt.length as usize;
+        if &xsdt.signature == b"XSDT"
+            && xsdt_len >= DESCRIPTION_HEADER_LEN
+            && verify_checksum(xsdt_virt as *const u8, xsdt_len)
+        {
+            let entries_count = (xsdt_len - DESCRIPTION_HEADER_LEN) / 8;
+            let entries_ptr = (xsdt_virt + DESCRIPTION_HEADER_LEN as u64) as *const u8;
             for i in 0..entries_count {
-                let entry_phys = unsafe { *entries_ptr.add(i) };
+                let entry_phys =
+                    unsafe { core::ptr::read_unaligned(entries_ptr.add(i * 8) as *const u64) };
+                if entry_phys == 0 {
+                    continue;
+                }
                 let entry_virt = physical_memory_offset + entry_phys;
                 let header = unsafe { &*(entry_virt as *const DescriptionHeader) };
-                if &header.signature == b"FACP" && verify_checksum(entry_virt as *const u8, header.length as usize) {
+                let header_len = header.length as usize;
+                if &header.signature == b"FACP"
+                    && header_len >= FADT_LEGACY_PM1_CNT_END
+                    && verify_checksum(entry_virt as *const u8, header_len)
+                {
                     fadt_opt = Some(unsafe { &*(entry_virt as *const Fadt) });
                     break;
                 }
@@ -185,18 +215,31 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
         }
     }
 
-    if fadt_opt.is_none() {
+    if fadt_opt.is_none() && rsdp.rsdt_address != 0 {
         // Fall back to RSDT
         let rsdt_virt = physical_memory_offset + rsdp.rsdt_address as u64;
         let rsdt = unsafe { &*(rsdt_virt as *const DescriptionHeader) };
-        if &rsdt.signature == b"RSDT" && verify_checksum(rsdt_virt as *const u8, rsdt.length as usize) {
-            let entries_count = (rsdt.length as usize - 36) / 4;
-            let entries_ptr = (rsdt_virt + 36) as *const u32;
+        let rsdt_len = rsdt.length as usize;
+        if &rsdt.signature == b"RSDT"
+            && rsdt_len >= DESCRIPTION_HEADER_LEN
+            && verify_checksum(rsdt_virt as *const u8, rsdt_len)
+        {
+            let entries_count = (rsdt_len - DESCRIPTION_HEADER_LEN) / 4;
+            let entries_ptr = (rsdt_virt + DESCRIPTION_HEADER_LEN as u64) as *const u8;
             for i in 0..entries_count {
-                let entry_phys = unsafe { *entries_ptr.add(i) } as u64;
+                let entry_phys = unsafe {
+                    core::ptr::read_unaligned(entries_ptr.add(i * 4) as *const u32) as u64
+                };
+                if entry_phys == 0 {
+                    continue;
+                }
                 let entry_virt = physical_memory_offset + entry_phys;
                 let header = unsafe { &*(entry_virt as *const DescriptionHeader) };
-                if &header.signature == b"FACP" && verify_checksum(entry_virt as *const u8, header.length as usize) {
+                let header_len = header.length as usize;
+                if &header.signature == b"FACP"
+                    && header_len >= FADT_LEGACY_PM1_CNT_END
+                    && verify_checksum(entry_virt as *const u8, header_len)
+                {
                     fadt_opt = Some(unsafe { &*(entry_virt as *const Fadt) });
                     break;
                 }
@@ -217,24 +260,24 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     };
 
     // Extract PM1a/b control block ports/addresses
-    let mut pm1a_cnt = fadt.pm1a_cnt_blk;
-    let mut pm1b_cnt = fadt.pm1b_cnt_blk;
+    let fadt_len = fadt.header.length as usize;
+    let mut pm1a_cnt = fadt.pm1a_cnt_blk as u64;
+    let mut pm1b_cnt = fadt.pm1b_cnt_blk as u64;
     let mut is_io = true;
 
-    // FADT length >= 148 contains ACPI 2.0+ Generic Address Structures for PM1a/b
-    if fadt.header.length >= 148 {
-        if fadt.x_pm1a_cnt_blk.address != 0 {
-            pm1a_cnt = fadt.x_pm1a_cnt_blk.address as u32;
-            pm1b_cnt = fadt.x_pm1b_cnt_blk.address as u32;
-            is_io = fadt.x_pm1a_cnt_blk.address_space == 1;
-        }
+    if fadt_len >= FADT_X_PM1A_CNT_END && fadt.x_pm1a_cnt_blk.address != 0 {
+        pm1a_cnt = fadt.x_pm1a_cnt_blk.address;
+        is_io = fadt.x_pm1a_cnt_blk.address_space == 1;
+    }
+    if fadt_len >= FADT_X_PM1B_CNT_END && fadt.x_pm1b_cnt_blk.address != 0 {
+        pm1b_cnt = fadt.x_pm1b_cnt_blk.address;
     }
 
     // Resolve DSDT physical address
-    let dsdt_phys = if fadt.header.length >= 148 && fadt.x_dsdt != 0 {
+    let dsdt_phys = if fadt_len >= FADT_X_DSDT_END && fadt.x_dsdt != 0 {
         fadt.x_dsdt
     } else {
-        fadt.dsdt as u64;
+        fadt.dsdt as u64
     };
 
     // Parse DSDT to find S5 sleep type values
@@ -244,9 +287,13 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     if dsdt_phys != 0 {
         let dsdt_virt = physical_memory_offset + dsdt_phys;
         let dsdt = unsafe { &*(dsdt_virt as *const DescriptionHeader) };
-        if &dsdt.signature == b"DSDT" && verify_checksum(dsdt_virt as *const u8, dsdt.length as usize) {
-            let aml_len = dsdt.length as usize - 36;
-            let aml_ptr = (dsdt_virt + 36) as *const u8;
+        let dsdt_len = dsdt.length as usize;
+        if &dsdt.signature == b"DSDT"
+            && dsdt_len >= DESCRIPTION_HEADER_LEN
+            && verify_checksum(dsdt_virt as *const u8, dsdt_len)
+        {
+            let aml_len = dsdt_len - DESCRIPTION_HEADER_LEN;
+            let aml_ptr = (dsdt_virt + DESCRIPTION_HEADER_LEN as u64) as *const u8;
             let aml_slice = unsafe { core::slice::from_raw_parts(aml_ptr, aml_len) };
             if let Some((typa, typb)) = scan_s5_values(aml_slice) {
                 slp_typa = Some(typa);
@@ -258,7 +305,7 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     // Capture ACPI reboot reset register if supported
     let mut reset_reg = None;
     let mut reset_value = None;
-    if fadt.header.length >= 129 {
+    if fadt_len >= FADT_RESET_VALUE_END {
         // RESET_REG_SUP is bit 10 in FADT flags
         let reset_supported = (fadt.flags & (1 << 10)) != 0;
         if reset_supported && fadt.reset_reg.address != 0 {
@@ -268,7 +315,9 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     }
 
     let mut state = ACPI_STATE.lock();
-    state.pm1a_cnt_blk = Some(pm1a_cnt);
+    if pm1a_cnt != 0 {
+        state.pm1a_cnt_blk = Some(pm1a_cnt);
+    }
     if pm1b_cnt != 0 {
         state.pm1b_cnt_blk = Some(pm1b_cnt);
     }
@@ -315,27 +364,15 @@ fn parse_aml_integer(slice: &[u8], p: &mut usize) -> Option<u8> {
 
 /// Scan DSDT AML byte slice for _S5_ name and extract its SLP_TYPa and SLP_TYPb values.
 fn scan_s5_values(aml: &[u8]) -> Option<(u8, u8)> {
-    let mut s5_idx = None;
-    // Scan for "_S5_"
-    for i in 0..(aml.len().saturating_sub(4)) {
-        if &aml[i..i + 4] == b"_S5_" {
-            s5_idx = Some(i);
-            break;
-        }
-    }
+    let idx = aml.windows(4).position(|window| window == b"_S5_")?;
 
-    let idx = s5_idx?;
     // Look for PackageOp (0x12) in the immediate vicinity
-    let mut pkg_idx = None;
+    let search_start = idx + 4;
     let search_limit = (idx + 12).min(aml.len());
-    for j in (idx + 4)..search_limit {
-        if aml[j] == 0x12 {
-            pkg_idx = Some(j);
-            break;
-        }
-    }
-
-    let p_idx = pkg_idx?;
+    let p_idx = aml[search_start..search_limit]
+        .iter()
+        .position(|&byte| byte == 0x12)?
+        + search_start;
     let mut p = p_idx + 1;
 
     // Skip Package Length (1 to 4 bytes in AML)
@@ -371,27 +408,31 @@ pub fn shutdown() -> ! {
         // Bit 13 is SLP_EN
         let val_a = ((typa as u16) << 10) | (1 << 13);
         if state.is_io {
-            let mut port_a = Port::<u16>::new(pm1a as u16);
-            unsafe {
-                port_a.write(val_a);
+            if let Ok(pm1a_port) = u16::try_from(pm1a) {
+                let mut port_a = Port::<u16>::new(pm1a_port);
+                unsafe {
+                    port_a.write(val_a);
+                }
             }
 
             if let (Some(pm1b), Some(typb)) = (state.pm1b_cnt_blk, state.slp_typb) {
                 let val_b = ((typb as u16) << 10) | (1 << 13);
-                let mut port_b = Port::<u16>::new(pm1b as u16);
-                unsafe {
-                    port_b.write(val_b);
+                if let Ok(pm1b_port) = u16::try_from(pm1b) {
+                    let mut port_b = Port::<u16>::new(pm1b_port);
+                    unsafe {
+                        port_b.write(val_b);
+                    }
                 }
             }
         } else if let Some(offset) = state.phys_mem_offset {
             // MMIO write
-            let addr_a = (offset + pm1a as u64) as *mut u16;
+            let addr_a = (offset + pm1a) as *mut u16;
             unsafe {
                 core::ptr::write_volatile(addr_a, val_a);
             }
             if let (Some(pm1b), Some(typb)) = (state.pm1b_cnt_blk, state.slp_typb) {
                 let val_b = ((typb as u16) << 10) | (1 << 13);
-                let addr_b = (offset + pm1b as u64) as *mut u16;
+                let addr_b = (offset + pm1b) as *mut u16;
                 unsafe {
                     core::ptr::write_volatile(addr_b, val_b);
                 }
@@ -406,7 +447,7 @@ pub fn shutdown() -> ! {
     for port_addr in &[0x604u16, 0xB004u16] {
         let mut port = Port::<u16>::new(*port_addr);
         unsafe {
-            port.write(0x2000);   // SLP_EN (SLP_TYP=0)
+            port.write(0x2000); // SLP_EN (SLP_TYP=0)
             port.write(0x2000 | (5 << 10)); // SLP_EN | (SLP_TYP=5)
         }
     }
@@ -430,11 +471,13 @@ pub fn reboot() -> bool {
     if let (Some(reg), Some(val)) = (state.reset_reg, state.reset_value) {
         if reg.address_space == 1 {
             // System I/O port
-            let mut port = Port::<u8>::new(reg.address.try_into().unwrap_or(0));
-            unsafe {
-                port.write(val);
+            if let Ok(port_address) = u16::try_from(reg.address) {
+                let mut port = Port::<u8>::new(port_address);
+                unsafe {
+                    port.write(val);
+                }
+                return true;
             }
-            return true;
         } else if reg.address_space == 0 {
             // System Memory MMIO
             if let Some(offset) = state.phys_mem_offset {
@@ -451,7 +494,10 @@ pub fn reboot() -> bool {
 
 #[cfg(test)]
 mod tests {
+    extern crate alloc;
+
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn test_scan_s5_values() {
@@ -471,9 +517,7 @@ mod tests {
         assert_eq!(res, Some((5, 5)));
 
         // Test with ZeroOp (0x00) constants (standard for QEMU S5 package)
-        let aml_zero = vec![
-            0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x04, 0x02, 0x00, 0x00,
-        ];
+        let aml_zero = vec![0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x04, 0x02, 0x00, 0x00];
         let res_zero = scan_s5_values(&aml_zero);
         assert_eq!(res_zero, Some((0, 0)));
     }

@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
 > Estado: **Activo**.  
-> Última actualización: **2026-06-18**
+> Última actualización: **2026-08-25**
 
 ---
 
@@ -52,6 +52,7 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 **Cobertura:**
 - El kernel arranca sin panic.
 - Los logs seriales contienen el banner esperado.
+- ACPI descubre RSDP/FADT y publica su estado de inicialización.
 - La inicialización de subsistemas ocurre en orden correcto.
 - El proceso init se crea exitosamente.
 
@@ -109,7 +110,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Kernel clippy | Activo | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
 | Runner clippy | Activo | `cargo clippy -p runner --all-targets -- -D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
-| **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (timeout 60 s, tcg) |
+| **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 
 La validación local equivalente recomendada está documentada en
 [`RUNBOOK.md`](RUNBOOK.md).
@@ -128,7 +129,7 @@ La validación local equivalente recomendada está documentada en
 ## 6. Próximos pasos
 
 1. ~~Crear primer boot test automatizado con QEMU y timeout.~~ ✅ **Completado** (`tests/boot/test_boot.py` + CI job `boot-test`)
-2. ~~Verificar banner serial y prompt `brane>` desde CI.~~ ✅ **Completado** (cadenas requeridas: `"Brane OS"` + `"brane>"`)
+2. ~~Verificar banner serial, ACPI y prompt `brane>` desde CI.~~ ✅ **Completado** (cadenas requeridas: `"Brane OS"`, `"[acpi] ACPI subsystem initialized"`, `"brane>"`)
 3. ~~Crear test de denegación de capability.~~ ✅ **Completado** (`tests/security/test_capability_denial.py` + `security_capability_tests` en `tests.rs`)
 4. ~~Agregar pruebas e2e mínimas sobre `brsh`.~~ ✅ **Completado** (`tests/e2e/test_brsh_commands.py` + `test_full_boot_flow.py`)
 5. ~~Integration tests: syscall → servicio, proceso → capability broker.~~ ✅ **Completado** (`tests/integration/` + `integration_syscall_tests` en `tests.rs`)
@@ -141,7 +142,7 @@ La validación local equivalente recomendada está documentada en
 | Target | Descripción |
 |--------|-------------|
 | `make test` | Unit tests en host (sin QEMU) |
-| `make boot-test` | Boot test en QEMU (60 s) |
+| `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
 | `make security-test` | Security tests en QEMU |
 | `make integration-test` | Integration tests en QEMU |
 | `make e2e-test` | E2E tests en QEMU |

@@ -46,6 +46,7 @@ DEFAULT_TIMEOUT = int(os.environ.get("BOOT_TIMEOUT", "60"))
 # Order does not matter; all must be present.
 REQUIRED_STRINGS = [
     "Brane OS",   # kernel banner
+    "[acpi] ACPI subsystem initialized",  # Phase 10 power management
     "brane>",     # brsh prompt (signals full userland init)
 ]
 
@@ -80,10 +81,14 @@ def error(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 def build_kernel() -> Path:
-    """Build the kernel (debug) and return the binary path."""
-    info("Building kernel (debug)…")
+    """Build the release kernel and return the binary path.
+
+    The debug ELF includes enough DWARF data to make the BIOS loader exceed
+    the 60-second QEMU timeout under TCG.
+    """
+    info("Building kernel (release)…")
     result = subprocess.run(
-        ["cargo", "build", "-p", KERNEL_CRATE, "--target", TARGET,
+        ["cargo", "build", "-p", KERNEL_CRATE, "--release", "--target", TARGET,
          "-Z", "build-std=core,compiler_builtins,alloc",
          "-Z", "build-std-features=compiler-builtins-mem"],
         cwd=REPO_ROOT,
@@ -94,7 +99,7 @@ def build_kernel() -> Path:
         error("cargo build failed:")
         print(result.stderr, file=sys.stderr)
         sys.exit(2)
-    bin_path = REPO_ROOT / "target" / TARGET / "debug" / "brane_os_kernel"
+    bin_path = REPO_ROOT / "target" / TARGET / "release" / "brane_os_kernel"
     if not bin_path.exists():
         error(f"Kernel binary not found at: {bin_path}")
         sys.exit(2)

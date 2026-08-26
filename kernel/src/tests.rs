@@ -689,8 +689,8 @@ static INTEGRATION_TEST_LOCK: spin::Mutex<()> = spin::Mutex::new(());
 
 #[cfg(test)]
 mod integration_syscall_tests {
-    use crate::syscall::{SyscallContext, SyscallNumber, SyscallResult, SyscallError, dispatch};
     use super::INTEGRATION_TEST_LOCK;
+    use crate::syscall::{dispatch, SyscallContext, SyscallError, SyscallNumber, SyscallResult};
 
     #[repr(C)]
     struct TestStackFrame {
@@ -707,7 +707,9 @@ mod integration_syscall_tests {
         *p_table = crate::process::ProcessTable::new();
         *crate::signal::SIGNAL_MANAGER.lock() = crate::signal::SignalManager::new();
 
-        let task_id = sched.add_task(name, crate::sched::Priority::Normal).unwrap();
+        let task_id = sched
+            .add_task(name, crate::sched::Priority::Normal)
+            .unwrap();
         sched.tick(); // transition task to Running
 
         let pid = p_table.create(name, None, task_id).unwrap();
@@ -742,7 +744,11 @@ mod integration_syscall_tests {
         let before_ticks = crate::sched::SCHEDULER.lock().total_ticks();
         let ctx = SyscallContext {
             number: SyscallNumber::Yield as u64,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx);
         match res {
@@ -760,7 +766,11 @@ mod integration_syscall_tests {
         let (_pid, _task_id) = setup_test_process("test_unknown");
         let ctx = SyscallContext {
             number: 999,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx);
         match res {
@@ -775,7 +785,11 @@ mod integration_syscall_tests {
         let (_pid, _task_id) = setup_test_process("test_exit");
         let ctx = SyscallContext {
             number: SyscallNumber::Exit as u64,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx);
         assert!(matches!(res, SyscallResult::Ok(0)));
@@ -787,7 +801,11 @@ mod integration_syscall_tests {
         let (_pid, task_id) = setup_test_process("test_getpid");
         let ctx = SyscallContext {
             number: SyscallNumber::GetPid as u64,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx);
         match res {
@@ -806,18 +824,27 @@ mod integration_syscall_tests {
             number: SyscallNumber::SigAction as u64,
             arg1: crate::signal::Signal::Usr1 as u64,
             arg2: 0x5555_0000,
-            arg3: 0, arg4: 0, arg5: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx_action);
         assert!(matches!(res, SyscallResult::Ok(0)));
 
         // Send signal directly to process (avoiding dispatch self-delivery on a non-frame context)
-        crate::signal::SIGNAL_MANAGER.lock().send(pid, crate::signal::Signal::Usr1).unwrap();
+        crate::signal::SIGNAL_MANAGER
+            .lock()
+            .send(pid, crate::signal::Signal::Usr1)
+            .unwrap();
 
         // Trigger delivery via gettime (neutral syscall)
         let ctx_time = SyscallContext {
             number: SyscallNumber::GetTime as u64,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let mut frame = TestStackFrame {
             ctx: ctx_time,
@@ -836,13 +863,17 @@ mod integration_syscall_tests {
         // SigReturn restores the original UserContext (including rax = original syscall return value)
         let ctx_return = SyscallContext {
             number: SyscallNumber::SigReturn as u64,
-            arg1: 0, arg2: 0, arg3: 0, arg4: 0, arg5: 0,
+            arg1: 0,
+            arg2: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let frame_return = TestStackFrame {
             ctx: ctx_return,
             user_ctx: crate::usermode::UserContext::empty(),
         };
-        
+
         let res_return = dispatch(&frame_return.ctx);
         // It should restore the original RAX (since the gettime syscall ticks count is returned)
         let ticks = crate::sched::SCHEDULER.lock().total_ticks();
@@ -860,7 +891,9 @@ mod integration_syscall_tests {
             number: SyscallNumber::SigProcMask as u64,
             arg1: 1, // SIG_BLOCK
             arg2: mask,
-            arg3: 0, arg4: 0, arg5: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx_block);
         assert_eq!(res.to_raw(), 0); // old mask was 0
@@ -878,7 +911,9 @@ mod integration_syscall_tests {
             number: SyscallNumber::SigProcMask as u64,
             arg1: 1, // SIG_BLOCK
             arg2: kill_mask,
-            arg3: 0, arg4: 0, arg5: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx_block_kill);
         assert_eq!(res.to_raw(), mask as i64); // old mask was Usr1
@@ -896,7 +931,9 @@ mod integration_syscall_tests {
             number: SyscallNumber::SigProcMask as u64,
             arg1: 3, // SIG_SETMASK
             arg2: mask_usr2,
-            arg3: 0, arg4: 0, arg5: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx_set);
         assert_eq!(res.to_raw(), mask as i64); // old mask was Usr1
@@ -913,7 +950,9 @@ mod integration_syscall_tests {
             number: SyscallNumber::SigProcMask as u64,
             arg1: 2, // SIG_UNBLOCK
             arg2: mask_usr2,
-            arg3: 0, arg4: 0, arg5: 0,
+            arg3: 0,
+            arg4: 0,
+            arg5: 0,
         };
         let res = dispatch(&ctx_unblock);
         assert_eq!(res.to_raw(), mask_usr2 as i64); // old mask was Usr2
@@ -935,15 +974,14 @@ mod integration_ipc_tests {
     fn ipc_send_recv_roundtrip() {
         let _guard = INTEGRATION_TEST_LOCK.lock();
         let mut ipc_mgr = crate::ipc::IPC.lock();
-        
+
         // Safely clear queues
         while ipc_mgr.recv(1).is_ok() {}
         while ipc_mgr.recv(2).is_ok() {}
 
-        let msg = crate::ipc::IpcMessage::new(
-            1, 2, crate::ipc::MessageType::Request,
-            b"Hello World!",
-        ).unwrap();
+        let msg =
+            crate::ipc::IpcMessage::new(1, 2, crate::ipc::MessageType::Request, b"Hello World!")
+                .unwrap();
 
         let res = ipc_mgr.send(msg);
         assert!(matches!(res, crate::syscall::SyscallResult::Ok(0)));
@@ -960,8 +998,8 @@ mod integration_ipc_tests {
 
 #[cfg(test)]
 mod security_capability_tests {
-    use crate::security::{CapPermissions, CapScope, CapabilityManager, RiskLevel, CapError};
     use super::INTEGRATION_TEST_LOCK;
+    use crate::security::{CapError, CapPermissions, CapScope, CapabilityManager, RiskLevel};
 
     #[test]
     fn deny_ipc_send_without_cap() {
@@ -980,18 +1018,39 @@ mod security_capability_tests {
     #[test]
     fn revoked_cap_is_denied() {
         let mut mgr = CapabilityManager::new();
-        let cap_id = mgr.grant(1, CapScope::System, CapPermissions::WRITE, RiskLevel::Medium, true).unwrap();
-        assert!(mgr.check(1, CapPermissions::WRITE, CapScope::System).is_ok());
+        let cap_id = mgr
+            .grant(
+                1,
+                CapScope::System,
+                CapPermissions::WRITE,
+                RiskLevel::Medium,
+                true,
+            )
+            .unwrap();
+        assert!(mgr
+            .check(1, CapPermissions::WRITE, CapScope::System)
+            .is_ok());
 
         mgr.revoke(cap_id).unwrap();
-        assert_eq!(mgr.check(1, CapPermissions::WRITE, CapScope::System), Err(CapError::PermissionDenied));
+        assert_eq!(
+            mgr.check(1, CapPermissions::WRITE, CapScope::System),
+            Err(CapError::PermissionDenied)
+        );
     }
 
     #[test]
     fn non_revocable_cap_cannot_be_revoked() {
         let mut mgr = CapabilityManager::new();
-        let cap_id = mgr.grant(1, CapScope::System, CapPermissions::EXECUTE, RiskLevel::High, false).unwrap();
-        
+        let cap_id = mgr
+            .grant(
+                1,
+                CapScope::System,
+                CapPermissions::EXECUTE,
+                RiskLevel::High,
+                false,
+            )
+            .unwrap();
+
         let res = mgr.revoke(cap_id);
         assert_eq!(res, Err(CapError::PermissionDenied));
     }
@@ -1001,9 +1060,17 @@ mod security_capability_tests {
         let _guard = INTEGRATION_TEST_LOCK.lock();
         let mut mgr = CapabilityManager::new();
         let before_events = crate::audit::AUDIT.lock().total_events();
-        
-        let _cap_id = mgr.grant(1, CapScope::System, CapPermissions::GRANT, RiskLevel::Critical, true).unwrap();
-        
+
+        let _cap_id = mgr
+            .grant(
+                1,
+                CapScope::System,
+                CapPermissions::GRANT,
+                RiskLevel::Critical,
+                true,
+            )
+            .unwrap();
+
         let after_events = crate::audit::AUDIT.lock().total_events();
         assert_eq!(after_events, before_events + 1);
 
@@ -1011,8 +1078,10 @@ mod security_capability_tests {
         let audit_log = crate::audit::AUDIT.lock();
         let mut events = audit_log.last_n(1);
         let event = events.next().expect("Expected at least one event");
-        assert!(matches!(event.action, crate::audit::AuditAction::CapabilityGranted(_)));
+        assert!(matches!(
+            event.action,
+            crate::audit::AuditAction::CapabilityGranted(_)
+        ));
         assert!(matches!(event.result, crate::audit::AuditResult::Success));
     }
 }
-

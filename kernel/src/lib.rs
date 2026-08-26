@@ -27,6 +27,7 @@ pub mod crypto;
 pub mod dns;
 pub mod fat32;
 pub mod framebuffer;
+pub mod gdt;
 pub mod ipc;
 pub mod memory;
 pub mod module_loader;
@@ -36,14 +37,13 @@ pub mod ramfs;
 pub mod sched;
 pub mod security;
 pub mod shell;
+pub mod signal;
 pub mod socket;
 pub mod syscall;
 pub mod tty;
+pub mod usermode;
 pub mod vfs;
 pub mod virtio;
-pub mod gdt;
-pub mod usermode;
-pub mod signal;
 
 #[cfg(test)]
 mod tests;

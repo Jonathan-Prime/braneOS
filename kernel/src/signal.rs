@@ -7,8 +7,8 @@
 // Spec reference: ROADMAP.md Fase 10 (POSIX signals)
 // ============================================================
 
+use crate::process::{Pid, PROCESS_TABLE};
 use spin::Mutex;
-use crate::process::{PROCESS_TABLE, Pid};
 
 const MAX_PROCESSES: usize = 128;
 
@@ -16,8 +16,8 @@ const MAX_PROCESSES: usize = 128;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Signal {
-    Hup  = 1,
-    Int  = 2,
+    Hup = 1,
+    Int = 2,
     Quit = 3,
     Kill = 9,
     Usr1 = 10,
@@ -69,6 +69,12 @@ impl SignalTable {
     }
 }
 
+impl Default for SignalTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Manages registered signal handlers across all process slots.
 pub struct SignalManager {
     pub tables: [SignalTable; MAX_PROCESSES],
@@ -103,7 +109,12 @@ impl SignalManager {
     }
 
     /// Register a signal action for a target process.
-    pub fn set_action(&mut self, pid: Pid, sig: Signal, action: SignalAction) -> Result<(), &'static str> {
+    pub fn set_action(
+        &mut self,
+        pid: Pid,
+        sig: Signal,
+        action: SignalAction,
+    ) -> Result<(), &'static str> {
         if sig == Signal::Kill || sig == Signal::Stop {
             return Err("SIGKILL and SIGSTOP cannot be caught or ignored");
         }
@@ -159,9 +170,16 @@ impl SignalManager {
         }
 
         let signals_to_check = [
-            Signal::Kill, Signal::Term, Signal::Int, Signal::Quit,
-            Signal::Hup, Signal::Usr1, Signal::Usr2, Signal::Chld,
-            Signal::Cont, Signal::Stop
+            Signal::Kill,
+            Signal::Term,
+            Signal::Int,
+            Signal::Quit,
+            Signal::Hup,
+            Signal::Usr1,
+            Signal::Usr2,
+            Signal::Chld,
+            Signal::Cont,
+            Signal::Stop,
         ];
 
         for sig in signals_to_check {
@@ -174,21 +192,19 @@ impl SignalManager {
                     SignalAction::Ignore => {
                         continue;
                     }
-                    SignalAction::Default => {
-                        match sig {
-                            Signal::Chld | Signal::Cont => {
-                                continue;
-                            }
-                            Signal::Stop => {
-                                continue;
-                            }
-                            _ => {
-                                let mut p_table = PROCESS_TABLE.lock();
-                                p_table.terminate(pid, 128 + sig as i32);
-                                return None;
-                            }
+                    SignalAction::Default => match sig {
+                        Signal::Chld | Signal::Cont => {
+                            continue;
                         }
-                    }
+                        Signal::Stop => {
+                            continue;
+                        }
+                        _ => {
+                            let mut p_table = PROCESS_TABLE.lock();
+                            p_table.terminate(pid, 128 + sig as i32);
+                            return None;
+                        }
+                    },
                     SignalAction::Handler(handler_addr) => {
                         return Some((sig, handler_addr));
                     }
@@ -196,6 +212,12 @@ impl SignalManager {
             }
         }
         None
+    }
+}
+
+impl Default for SignalManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

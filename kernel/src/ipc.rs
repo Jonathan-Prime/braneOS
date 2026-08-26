@@ -263,5 +263,11 @@ impl IpcManager {
     }
 }
 
+impl Default for IpcManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Global IPC manager, protected by a spinlock.
 pub static IPC: Mutex<IpcManager> = Mutex::new(IpcManager::new());

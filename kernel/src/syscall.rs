@@ -231,20 +231,23 @@ pub fn dispatch(ctx: &SyscallContext) -> SyscallResult {
         if let Some(pid) = get_current_pid() {
             let mut sig_mgr = crate::signal::SIGNAL_MANAGER.lock();
             if let Some((sig, handler_addr)) = sig_mgr.deliver_pending(pid) {
-                let user_context_ptr = (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
+                let user_context_ptr =
+                    (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
                 unsafe {
                     let mut p_table = crate::process::PROCESS_TABLE.lock();
                     if let Some(proc) = p_table.get_mut(pid) {
                         proc.saved_context = Some(*user_context_ptr);
                     }
-                    
-                    if let Some(ref mut saved) = p_table.get_mut(pid).and_then(|p| p.saved_context.as_mut()) {
+
+                    if let Some(ref mut saved) =
+                        p_table.get_mut(pid).and_then(|p| p.saved_context.as_mut())
+                    {
                         saved.rax = result.to_raw() as u64;
                     }
 
                     let user_ctx = &mut *user_context_ptr;
                     user_ctx.rcx = handler_addr; // redirect userspace RIP
-                    user_ctx.rdi = sig as u64;   // signal number as first arg
+                    user_ctx.rdi = sig as u64; // signal number as first arg
                     result = SyscallResult::Ok(0);
                 }
             }
@@ -330,12 +333,10 @@ fn handle_kill(ctx: &SyscallContext) -> SyscallResult {
     let pid = ctx.arg1;
     let sig_val = ctx.arg2 as u8;
     match crate::signal::Signal::try_from(sig_val) {
-        Ok(sig) => {
-            match crate::signal::SIGNAL_MANAGER.lock().send(pid, sig) {
-                Ok(_) => SyscallResult::Ok(0),
-                Err(_) => SyscallResult::Err(SyscallError::NotFound),
-            }
-        }
+        Ok(sig) => match crate::signal::SIGNAL_MANAGER.lock().send(pid, sig) {
+            Ok(_) => SyscallResult::Ok(0),
+            Err(_) => SyscallResult::Err(SyscallError::NotFound),
+        },
         Err(_) => SyscallResult::Err(SyscallError::InvalidArgument),
     }
 }
@@ -343,7 +344,7 @@ fn handle_kill(ctx: &SyscallContext) -> SyscallResult {
 fn handle_sigaction(ctx: &SyscallContext) -> SyscallResult {
     let sig_val = ctx.arg1 as u8;
     let handler_addr = ctx.arg2;
-    
+
     let current_pid = match get_current_pid() {
         Some(pid) => pid,
         None => return SyscallResult::Err(SyscallError::Internal),
@@ -359,7 +360,10 @@ fn handle_sigaction(ctx: &SyscallContext) -> SyscallResult {
                 crate::signal::SignalAction::Handler(handler_addr)
             };
 
-            match crate::signal::SIGNAL_MANAGER.lock().set_action(current_pid, sig, action) {
+            match crate::signal::SIGNAL_MANAGER
+                .lock()
+                .set_action(current_pid, sig, action)
+            {
                 Ok(_) => SyscallResult::Ok(0),
                 Err(_) => SyscallResult::Err(SyscallError::InvalidArgument),
             }
@@ -373,12 +377,13 @@ fn handle_sigreturn(ctx: &SyscallContext) -> SyscallResult {
         Some(pid) => pid,
         None => return SyscallResult::Err(SyscallError::Internal),
     };
-    
+
     let mut p_table = crate::process::PROCESS_TABLE.lock();
     if let Some(proc) = p_table.get_mut(current_pid) {
         if let Some(saved) = proc.saved_context.take() {
             unsafe {
-                let user_context_ptr = (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
+                let user_context_ptr =
+                    (ctx as *const SyscallContext as u64 + 48) as *mut crate::usermode::UserContext;
                 *user_context_ptr = saved;
                 SyscallResult::Ok(saved.rax)
             }
@@ -403,19 +408,23 @@ fn handle_sigprocmask(ctx: &SyscallContext) -> SyscallResult {
     if let Some(proc) = p_table.get_mut(current_pid) {
         let old_mask = proc.signal_blocked;
         match how {
-            1 => { // SIG_BLOCK
+            1 => {
+                // SIG_BLOCK
                 proc.signal_blocked |= set;
             }
-            2 => { // SIG_UNBLOCK
+            2 => {
+                // SIG_UNBLOCK
                 proc.signal_blocked &= !set;
             }
-            3 => { // SIG_SETMASK
+            3 => {
+                // SIG_SETMASK
                 proc.signal_blocked = set;
             }
             _ => return SyscallResult::Err(SyscallError::InvalidArgument),
         }
         // SIGKILL and SIGSTOP cannot be blocked
-        let cannot_block = (1 << (crate::signal::Signal::Kill as u8)) | (1 << (crate::signal::Signal::Stop as u8));
+        let cannot_block =
+            (1 << (crate::signal::Signal::Kill as u8)) | (1 << (crate::signal::Signal::Stop as u8));
         proc.signal_blocked &= !cannot_block;
 
         SyscallResult::Ok(old_mask)

@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
 > Estado: **Activo** — se actualiza conforme el proyecto avanza.  
-> Última actualización: **2026-06-18**
+> Última actualización: **2026-08-25**
 
 ---
 
@@ -109,7 +109,7 @@
 
 ---
 
-## 🔲 Fase 7 — Filesystem, Shell y TTY (EN PROGRESO)
+## ✅ Fase 7 — Filesystem, Shell y TTY (COMPLETADA)
 
 **Objetivo:** Sistema de archivos virtual, terminal y shell interactiva.
 
@@ -118,7 +118,7 @@
 | VFS (Virtual Filesystem) | ✅ | ALTA | Trait `FileSystem`, mount table, path resolution |
 | RamFS (in-memory FS) | ✅ | ALTA | 256 inodes, /dev, /proc, /tmp |
 | TTY driver | ✅ | ALTA | Input ring buffer + dual output (serial+fb) |
-| `brsh` (Shell mínima) | ✅ | ALTA | 13 comandos: help, ps, mem, ls, cat, etc. |
+| `brsh` (Shell mínima) | ✅ | ALTA | 18 comandos + alias `poweroff` |
 | `initramfs` | ✅ | MEDIA | Imagen de boot dinámica en RamFS (/etc/motd, etc.) |
 | FAT32 / ext2 (lectura) | ✅ | BAJA | Stub de lectura y parseo de MBR/BootSector |
 
@@ -176,7 +176,7 @@
 | Componente | Estado | Prioridad | Notas |
 |-----------|--------|-----------|-------|
 | Context switching real | ✅ | ALTA | Coop: save/restore registers (r12-r15, rbx, rbp, rsp) |
-| **Boot test automatizado (QEMU)** | ✅ | ALTA | `tests/boot/test_boot.py` + CI job `boot-test`, timeout 60 s |
+| **Boot test automatizado (QEMU)** | ✅ | ALTA | Kernel release en QEMU/TCG; valida banner, ACPI y prompt en 60 s |
 | **Empaquetado ISO booteable** | ✅ | ALTA | `tools/make_iso.sh` + GRUB cfg, `make iso` / `make release` |
 | **User mode transitions** | ✅ | ALTA | `syscall`/`sysret` via `usermode::init_syscall_msrs()` — activo en boot |
 | **Señales POSIX** | ✅ | ALTA | `signal.rs`: `Kill`, `SigAction`, `SigReturn` syscalls + `SIGNAL_MANAGER` |
@@ -185,7 +185,7 @@
 | **E2E tests** | ✅ | ALTA | `tests/e2e/`: brsh commands + full boot flow (19 fases verificadas) |
 | **Documentación de API** | ✅ | MEDIA | `make docs` → `cargo doc -p brane_os_kernel` |
 | Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler (requiere hardware real) |
-| ACPI power management | 🔲 | MEDIA | Shutdown, sleep, wake |
+| ACPI power management | 🔄 | MEDIA | RSDP/XSDT/RSDT/FADT, shutdown y reboot ✅ en QEMU; sleep/wake 🔲 |
 | USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
 | GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
 | Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
@@ -200,14 +200,14 @@
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 33 |
-| **Líneas de código (Rust)** | ~9,800 |
-| **Unit tests** | 79 (+ integration tests en `tests.rs`) |
-| **Syscalls definidas** | 27 (+ Kill, SigAction, SigReturn) |
-| **Harnesses de test Python** | 6 (boot + 2 security + 2 integration + 2 e2e) |
+| **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
+| **Líneas de código (Rust)** | ~10,700 |
+| **Unit tests** | 91 (incluye integration tests en `tests.rs`) |
+| **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
+| **Harnesses de test Python** | 7 (boot + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 5 jobs (build, fmt, clippy, unit tests, boot-test) |
 | **Make targets de test** | 5 (test, boot-test, security-test, integration-test, e2e-test) |
-| **Fases completadas** | 9 de 10 + Fase 10 en progreso (8/15 ítems ✅) |
+| **Fases completadas** | 9 de 10 + Fase 10 en progreso (9/16 ítems ✅, ACPI parcial) |
 
 ---
 

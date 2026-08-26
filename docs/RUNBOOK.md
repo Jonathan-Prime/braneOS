@@ -1,6 +1,7 @@
 # RUNBOOK.md - Build, CI y ejecucion local
 
-> Estado: operativo para desarrollo local. Este documento describe el flujo
+> Estado: operativo para desarrollo local. Última actualización: 2026-08-25.
+> Este documento describe el flujo
 > actual del repositorio, no el release final instalable.
 
 ---
@@ -14,7 +15,7 @@ El arranque actual inicializa:
 
 - serial y framebuffer,
 - GDT, IDT y PIC,
-- memoria, paging y heap,
+- memoria, paging, heap y ACPI,
 - scheduler cooperativo,
 - syscalls e IPC,
 - capacidades, auditoria y loader de modulos,
@@ -125,6 +126,7 @@ Antes de abrir un PR, ejecute:
 cargo fmt --all -- --check
 make clippy
 make test
+make boot-test
 ```
 
 `make clippy` valida:
@@ -133,6 +135,10 @@ make test
 - runner host con `-D warnings`.
 
 `make test` ejecuta los unit tests host-side del kernel.
+
+`make boot-test` construye el kernel release —el ELF debug excede el timeout
+de carga del bootloader BIOS bajo TCG— y valida banner, inicialización ACPI y
+prompt de `brsh` en QEMU.
 
 ---
 
@@ -151,21 +157,21 @@ Jobs actuales:
 | Clippy Lints | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
 | Runner Lints | `cargo clippy -p runner --all-targets -- -D warnings` |
 | Unit Tests | `cargo test -p brane_os_kernel --lib` |
+| Boot Test (QEMU) | `python3 tests/boot/test_boot.py` |
 
 ---
 
 ## 7. Pendiente para ejecucion tipo release
 
-Para pasar de ejecucion de desarrollo en QEMU a release instalable todavia
+Para pasar de ejecución de desarrollo en QEMU a release instalable todavía
 faltan:
 
-- boot test automatizado con QEMU y timeout en CI,
-- artefacto versionado de imagen booteable,
-- ISO o layout de distribucion instalable,
-- documentacion de flags de QEMU para BIOS vs UEFI,
-- pruebas e2e sobre `brsh`,
-- transiciones reales a user mode,
-- proceso de release con checksums y notas de version.
+- publicar un artefacto versionado de la imagen booteable,
+- documentar los flags de QEMU para BIOS frente a UEFI,
+- agregar los harnesses security, integration y e2e como jobs de CI,
+- completar ACPI sleep/wake y validarlo en hardware,
+- añadir stress tests y fuzzing,
+- cerrar el proceso v1.0 con checksums y notas de versión.
 
 ---
 

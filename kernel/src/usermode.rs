@@ -95,10 +95,21 @@ impl UserContext {
     /// Create a zeroed context.
     pub const fn empty() -> Self {
         Self {
-            r15: 0, r14: 0, r13: 0, r12: 0,
-            rbx: 0, rbp: 0, r11: 0, r10: 0,
-            r9: 0,  r8: 0,  rdi: 0, rsi: 0,
-            rdx: 0, rcx: 0, rax: 0,
+            r15: 0,
+            r14: 0,
+            r13: 0,
+            r12: 0,
+            rbx: 0,
+            rbp: 0,
+            r11: 0,
+            r10: 0,
+            r9: 0,
+            r8: 0,
+            rdi: 0,
+            rsi: 0,
+            rdx: 0,
+            rcx: 0,
+            rax: 0,
         }
     }
 }
@@ -107,8 +118,8 @@ impl UserContext {
 // MSR constants
 // -----------------------------------------------------------------------
 
-const MSR_EFER:  u32 = 0xC000_0080;
-const MSR_STAR:  u32 = 0xC000_0081;
+const MSR_EFER: u32 = 0xC000_0080;
+const MSR_STAR: u32 = 0xC000_0081;
 const MSR_LSTAR: u32 = 0xC000_0082;
 const MSR_FMASK: u32 = 0xC000_0084;
 
@@ -388,7 +399,7 @@ mod tests {
     fn per_cpu_initial_state() {
         // Static initial values are zero
         let kernel_rsp = unsafe { PER_CPU.kernel_rsp };
-        let user_rsp   = unsafe { PER_CPU.user_rsp };
+        let user_rsp = unsafe { PER_CPU.user_rsp };
         // Before init_syscall_msrs() is called on bare metal both are 0;
         // on the host test environment this still holds.
         let _ = kernel_rsp;

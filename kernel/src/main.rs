@@ -36,8 +36,8 @@ mod pic;
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::serial_println;
 use brane_os_kernel::{
-    acpi, ai, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process, ramfs, sched,
-    security, serial, shell, socket, syscall, tty, usermode, vfs,
+    acpi, ai, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process, ramfs,
+    sched, security, serial, shell, socket, syscall, tty, usermode, vfs,
 };
 
 // -----------------------------------------------------------------------
@@ -148,8 +148,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     // Initialize ACPI power management
-    let rsdp_addr = boot_info.rsdp_addr.into_option().unwrap_or(0);
-    acpi::init(rsdp_addr, phys_offset);
+    if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
+        acpi::init(rsdp_addr, phys_offset);
+    } else {
+        serial_println!("[acpi] RSDP unavailable; power management disabled.");
+    }
 
     // Initialize kernel heap — map pages and set up the linked-list allocator
     memory::heap::init(&mut mapper, &mut frame_alloc).expect("heap initialization failed");
