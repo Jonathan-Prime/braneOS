@@ -31,9 +31,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-03-11
           components: rust-src, llvm-tools-preview
           targets: x86_64-unknown-none
 
@@ -63,9 +64,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-03-11
           components: rustfmt
 
       - name: Check formatting
@@ -80,9 +82,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-03-11
           components: clippy, rust-src, llvm-tools-preview
           targets: x86_64-unknown-none
 
@@ -112,9 +115,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-03-11
           components: rust-src
 
       - name: Cache cargo registry & build
@@ -142,9 +146,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-03-11
           components: rust-src, llvm-tools-preview
           targets: x86_64-unknown-none
 

@@ -29,8 +29,8 @@ El sistema entra en `brsh` y queda esperando entrada por TTY.
 
 ### Herramientas
 
-- Rust nightly. El repo incluye `rust-toolchain.toml`; no hace falta cambiar el
-  toolchain global con `rustup default nightly`.
+- Rust nightly fijado a `nightly-2026-03-11` en `rust-toolchain.toml`; no hace
+  falta cambiar el toolchain global con `rustup default nightly`.
 - Componentes Rust: `rust-src`, `llvm-tools-preview`, `rustfmt`, `clippy`.
 - QEMU con `qemu-system-x86_64`.
 - `make`.
