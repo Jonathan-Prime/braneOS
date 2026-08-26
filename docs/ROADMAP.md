@@ -35,7 +35,7 @@
 | Keyboard (PS/2) | ✅ | Scancode decoding con `pc-keyboard` |
 | Timer interrupt | ✅ | PIT ~18.2 Hz |
 | Makefile + QEMU runner | ✅ | `build`, `run`, `test`, `clean` |
-| GitHub Actions CI | ✅ | Build (debug+release), `rustfmt`, kernel+runner `clippy -D warnings`, unit tests |
+| GitHub Actions CI | ✅ | Build, format, clippy, unit, boot, security, integration y E2E (8 checks) |
 | Documentación base | ✅ | ARCHITECTURE, SECURITY_MODEL, AI_SUBSYSTEM, ROADMAP, TEST_PLAN |
 
 ---
@@ -180,9 +180,9 @@
 | **Empaquetado ISO booteable** | ✅ | ALTA | `tools/make_iso.sh` + GRUB cfg, `make iso` / `make release` |
 | **User mode transitions** | ✅ | ALTA | `syscall`/`sysret` via `usermode::init_syscall_msrs()` — activo en boot |
 | **Señales POSIX** | ✅ | ALTA | `signal.rs`: `Kill`, `SigAction`, `SigReturn` syscalls + `SIGNAL_MANAGER` |
-| **Security tests** | ✅ | ALTA | `tests/security/`: capability denial + privilege escalation |
-| **Integration tests** | ✅ | ALTA | `tests/integration/`: syscall→service + capability broker |
-| **E2E tests** | ✅ | ALTA | `tests/e2e/`: brsh commands + full boot flow (19 fases verificadas) |
+| **Security tests** | ✅ | ALTA | `tests/security/`: capability denial + privilege escalation; job QEMU en CI |
+| **Integration tests** | ✅ | ALTA | `tests/integration/`: syscall→service + capability broker; job QEMU en CI |
+| **E2E tests** | ✅ | ALTA | `tests/e2e/`: disponibilidad de brsh + boot flow (20 fases); job QEMU en CI |
 | **Documentación de API** | ✅ | MEDIA | `make docs` → `cargo doc -p brane_os_kernel` |
 | Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler (requiere hardware real) |
 | ACPI power management | 🔄 | MEDIA | RSDP/XSDT/RSDT/FADT, shutdown y reboot ✅ en QEMU; sleep/wake 🔲 |
@@ -205,7 +205,7 @@
 | **Unit tests** | 91 (incluye integration tests en `tests.rs`) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 7 (boot + 2 security + 2 integration + 2 e2e) |
-| **CI checks** | 5 jobs (build, fmt, clippy, unit tests, boot-test) |
+| **CI checks** | 8 (build, fmt, clippy, unit, boot, security, integration, E2E) |
 | **Make targets de test** | 5 (test, boot-test, security-test, integration-test, e2e-test) |
 | **Fases completadas** | 9 de 10 + Fase 10 en progreso (9/16 ítems ✅, ACPI parcial) |
 

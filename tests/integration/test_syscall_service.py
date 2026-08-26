@@ -32,6 +32,9 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qemu_serial import serial_lines
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -72,9 +75,10 @@ def error(msg): print(f"[sys-test]  \033[31mFAIL\033[0m  {msg}", flush=True)
 # ---------------------------------------------------------------------------
 
 def build_kernel() -> Path:
-    info("Building kernel (debug)…")
+    info("Building kernel (release)…")
     result = subprocess.run(
         ["cargo", "build", "-p", "brane_os_kernel",
+         "--release",
          "--target", "x86_64-unknown-none",
          "-Z", "build-std=core,compiler_builtins,alloc",
          "-Z", "build-std-features=compiler-builtins-mem"],
@@ -84,7 +88,7 @@ def build_kernel() -> Path:
         error("cargo build failed:")
         print(result.stderr, file=sys.stderr)
         sys.exit(2)
-    bin_path = REPO_ROOT / "target" / "x86_64-unknown-none" / "debug" / "brane_os_kernel"
+    bin_path = REPO_ROOT / "target" / "x86_64-unknown-none" / "release" / "brane_os_kernel"
     if not bin_path.exists():
         error(f"Kernel binary not found: {bin_path}")
         sys.exit(2)
@@ -141,8 +145,7 @@ def run_integration_test(img_path: Path, timeout: int) -> int:
         nonlocal getpid_value
         assert proc.stdout is not None
         try:
-            for raw_line in proc.stdout:
-                line = raw_line.rstrip()
+            for line in serial_lines(proc.stdout, ("brane>", *FAIL_STRINGS)):
                 output_lines.append(line)
                 print(f"  serial │ {line}", flush=True)
 

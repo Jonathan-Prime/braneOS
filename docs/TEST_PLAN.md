@@ -104,13 +104,14 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 
 | Check | Estado | Comando |
 |-------|--------|---------|
-| Kernel debug build | Activo | `cargo build -p brane_os_kernel --target x86_64-unknown-none` |
-| Kernel release build | Activo | `cargo build -p brane_os_kernel --target x86_64-unknown-none --release` |
+| Kernel build | Activo | `cargo build` debug + release para `x86_64-unknown-none` |
 | Formatting | Activo | `cargo fmt --all -- --check` |
-| Kernel clippy | Activo | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
-| Runner clippy | Activo | `cargo clippy -p runner --all-targets -- -D warnings` |
+| Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
+| **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
+| **Integration tests (QEMU)** | **Activo** | `make integration-test` (syscall/service + capability broker) |
+| **E2E tests (QEMU)** | **Activo** | `make e2e-test` (disponibilidad de brsh + secuencia completa de boot) |
 
 La validación local equivalente recomendada está documentada en
 [`RUNBOOK.md`](RUNBOOK.md).
@@ -121,8 +122,8 @@ La validación local equivalente recomendada está documentada en
 
 - Todo módulo nuevo debe incluir tests unitarios.
 - Los tests de seguridad son obligatorios para cambios en política/capacidades.
-- Los boot tests deberán ejecutarse en cada PR cuando exista el harness QEMU.
-- Los e2e tests se ejecutan antes de cada release.
+- Los boot, security, integration y e2e tests se ejecutan en cada PR mediante QEMU/TCG.
+- Todos los harnesses QEMU usan el kernel release y comparten una imagen por suite.
 
 ---
 
@@ -133,8 +134,8 @@ La validación local equivalente recomendada está documentada en
 3. ~~Crear test de denegación de capability.~~ ✅ **Completado** (`tests/security/test_capability_denial.py` + `security_capability_tests` en `tests.rs`)
 4. ~~Agregar pruebas e2e mínimas sobre `brsh`.~~ ✅ **Completado** (`tests/e2e/test_brsh_commands.py` + `test_full_boot_flow.py`)
 5. ~~Integration tests: syscall → servicio, proceso → capability broker.~~ ✅ **Completado** (`tests/integration/` + `integration_syscall_tests` en `tests.rs`)
-6. Stress tests y fuzzing de componentes críticos.
-7. Agregar jobs de CI para los nuevos harnesses Python (security, integration, e2e).
+6. ~~Agregar jobs de CI para los harnesses Python (security, integration, e2e).~~ ✅ **Completado** (matriz `runtime-tests` en `.github/workflows/ci.yml`)
+7. Stress tests y fuzzing de componentes críticos.
 8. Release v1.0: ISO booteable + documentación API publicada.
 
 ## 7. Make targets disponibles
@@ -142,6 +143,7 @@ La validación local equivalente recomendada está documentada en
 | Target | Descripción |
 |--------|-------------|
 | `make test` | Unit tests en host (sin QEMU) |
+| `make test-image` | Compila una imagen compartida con el kernel release |
 | `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
 | `make security-test` | Security tests en QEMU |
 | `make integration-test` | Integration tests en QEMU |

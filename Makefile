@@ -4,12 +4,13 @@
 
 KERNEL_BIN     := target/x86_64-unknown-none/debug/brane_os_kernel
 KERNEL_RELEASE := target/x86_64-unknown-none/release/brane_os_kernel
+TEST_IMAGE     := target/brane_os-bios.img
 BUILD_FLAGS    := -Z build-std=core,compiler_builtins,alloc \
                   -Z build-std-features=compiler-builtins-mem \
                   --target x86_64-unknown-none
 
 .PHONY: build build-release run run-release test fmt clippy \
-        boot-test security-test integration-test e2e-test test-all \
+        test-image boot-test security-test integration-test e2e-test test-all \
         docs iso release clean help
 
 # --- Build -------------------------------------------------------------------
@@ -49,20 +50,23 @@ clean: ## Remove build artifacts
 
 # --- Testing -----------------------------------------------------------------
 
-boot-test: build-release ## Run automated release-kernel boot test in QEMU (60 s timeout)
-	python3 tests/boot/test_boot.py
+test-image: build-release ## Build the shared release-kernel image used by QEMU tests
+	NO_RUN=1 KERNEL_BIN_PATH=$(KERNEL_RELEASE) cargo run --package runner
 
-security-test: build ## Security tests: capability denial + privilege escalation
-	python3 tests/security/test_capability_denial.py
-	python3 tests/security/test_privilege_escalation.py
+boot-test: test-image ## Run automated release-kernel boot test in QEMU (60 s timeout)
+	python3 tests/boot/test_boot.py --img $(TEST_IMAGE)
 
-integration-test: build ## Integration tests: syscall→service + capability broker
-	python3 tests/integration/test_syscall_service.py
-	python3 tests/integration/test_capability_broker.py
+security-test: test-image ## Security tests: capability denial + privilege escalation
+	python3 tests/security/test_capability_denial.py --img $(TEST_IMAGE)
+	python3 tests/security/test_privilege_escalation.py --img $(TEST_IMAGE)
 
-e2e-test: build ## E2E tests: brsh commands + full boot flow verification
-	python3 tests/e2e/test_brsh_commands.py --no-inject
-	python3 tests/e2e/test_full_boot_flow.py
+integration-test: test-image ## Integration tests: syscall→service + capability broker
+	python3 tests/integration/test_syscall_service.py --img $(TEST_IMAGE)
+	python3 tests/integration/test_capability_broker.py --img $(TEST_IMAGE)
+
+e2e-test: test-image ## E2E tests: brsh commands + full boot flow verification
+	python3 tests/e2e/test_brsh_commands.py --no-inject --img $(TEST_IMAGE)
+	python3 tests/e2e/test_full_boot_flow.py --img $(TEST_IMAGE)
 
 test-all: test boot-test security-test integration-test e2e-test ## Full test suite (unit → boot → security → integration → e2e)
 	@echo ""

@@ -125,8 +125,7 @@ Antes de abrir un PR, ejecute:
 ```bash
 cargo fmt --all -- --check
 make clippy
-make test
-make boot-test
+make test-all
 ```
 
 `make clippy` valida:
@@ -134,11 +133,10 @@ make boot-test
 - kernel bare-metal con `-D warnings`,
 - runner host con `-D warnings`.
 
-`make test` ejecuta los unit tests host-side del kernel.
-
-`make boot-test` construye el kernel release —el ELF debug excede el timeout
-de carga del bootloader BIOS bajo TCG— y valida banner, inicialización ACPI y
-prompt de `brsh` en QEMU.
+`make test-all` ejecuta unit, boot, security, integration y E2E. Los targets
+QEMU comparten una imagen del kernel release —el ELF debug excede el timeout
+de carga del bootloader BIOS bajo TCG— y detectan el prompt `brane>` aunque no
+termine con salto de línea.
 
 ---
 
@@ -151,13 +149,14 @@ Jobs actuales:
 
 | Job | Comando principal |
 |-----|-------------------|
-| Build Kernel | `cargo build -p brane_os_kernel --target x86_64-unknown-none` |
-| Build Kernel release | `cargo build -p brane_os_kernel --target x86_64-unknown-none --release` |
+| Build Kernel | Build debug + release para `x86_64-unknown-none` |
 | Formatting | `cargo fmt --all -- --check` |
-| Clippy Lints | `cargo clippy -p brane_os_kernel --target x86_64-unknown-none -- -D warnings` |
-| Runner Lints | `cargo clippy -p runner --all-targets -- -D warnings` |
+| Clippy Lints | Kernel bare-metal + runner host con `-D warnings` |
 | Unit Tests | `cargo test -p brane_os_kernel --lib` |
 | Boot Test (QEMU) | `python3 tests/boot/test_boot.py` |
+| Security Tests (QEMU) | `make security-test` |
+| Integration Tests (QEMU) | `make integration-test` |
+| E2E Tests (QEMU) | `make e2e-test` |
 
 ---
 
@@ -168,7 +167,6 @@ faltan:
 
 - publicar un artefacto versionado de la imagen booteable,
 - documentar los flags de QEMU para BIOS frente a UEFI,
-- agregar los harnesses security, integration y e2e como jobs de CI,
 - completar ACPI sleep/wake y validarlo en hardware,
 - añadir stress tests y fuzzing,
 - cerrar el proceso v1.0 con checksums y notas de versión.

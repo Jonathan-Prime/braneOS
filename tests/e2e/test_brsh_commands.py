@@ -40,6 +40,9 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from qemu_serial import serial_lines
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -86,9 +89,10 @@ def error(msg): print(f"[brsh-e2e]  \033[31mFAIL\033[0m  {msg}", flush=True)
 # ---------------------------------------------------------------------------
 
 def build_kernel() -> Path:
-    info("Building kernel (debug)…")
+    info("Building kernel (release)…")
     result = subprocess.run(
         ["cargo", "build", "-p", "brane_os_kernel",
+         "--release",
          "--target", "x86_64-unknown-none",
          "-Z", "build-std=core,compiler_builtins,alloc",
          "-Z", "build-std-features=compiler-builtins-mem"],
@@ -98,7 +102,7 @@ def build_kernel() -> Path:
         error("cargo build failed:")
         print(result.stderr, file=sys.stderr)
         sys.exit(2)
-    bin_path = REPO_ROOT / "target" / "x86_64-unknown-none" / "debug" / "brane_os_kernel"
+    bin_path = REPO_ROOT / "target" / "x86_64-unknown-none" / "release" / "brane_os_kernel"
     if not bin_path.exists():
         error(f"Binary not found: {bin_path}")
         sys.exit(2)
@@ -163,8 +167,7 @@ def run_brsh_test(img_path: Path, timeout: int, inject_commands: bool) -> int:
     def reader():
         assert proc.stdout is not None
         try:
-            for raw_line in proc.stdout:
-                line = raw_line.rstrip()
+            for line in serial_lines(proc.stdout, ("brane>", *FAIL_STRINGS)):
                 output_lines.append(line)
                 all_output.append(line)
                 print(f"  serial │ {line}", flush=True)
@@ -245,15 +248,16 @@ def run_brsh_test(img_path: Path, timeout: int, inject_commands: bool) -> int:
     total  = len(COMMAND_RESPONSES)
 
     for cmd_name, expected_tokens in COMMAND_RESPONSES.items():
+        if not inject_commands:
+            info(f"'{cmd_name}': skipped (command injection disabled)")
+            continue
+
         found_tokens = [tok for tok in expected_tokens if tok in full_output]
         if len(found_tokens) >= len(expected_tokens) // 2:
             ok(f"'{cmd_name}' response verified ({len(found_tokens)}/{len(expected_tokens)} tokens found)")
             passes += 1
         else:
-            if inject_commands:
-                warn(f"'{cmd_name}': only {len(found_tokens)}/{len(expected_tokens)} expected tokens found")
-            else:
-                info(f"'{cmd_name}': skipped (command injection disabled)")
+            warn(f"'{cmd_name}': only {len(found_tokens)}/{len(expected_tokens)} expected tokens found")
 
     # Shell is considered functional if prompt appeared at least once
     prompt_count = sum(1 for ln in all_output if "brane>" in ln)

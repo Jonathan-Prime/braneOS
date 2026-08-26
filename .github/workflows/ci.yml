@@ -8,6 +8,9 @@
 #   3. Lints (clippy)
 #   4. Kernel unit tests
 #   5. Boot test — QEMU serial output verification (60 s timeout)
+#   6. Security tests — capability denial and privilege escalation
+#   7. Integration tests — syscalls/services and capability broker
+#   8. E2E tests — shell readiness and complete boot sequence
 # ============================================================
 
 name: CI
@@ -174,3 +177,60 @@ jobs:
         env:
           BOOT_TIMEOUT: "60"
         run: python3 tests/boot/test_boot.py
+
+  # -----------------------------------------------------------------
+  # Runtime Suites — security, integration and E2E checks in QEMU
+  # -----------------------------------------------------------------
+  runtime-tests:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Security Tests (QEMU)
+            suite: security
+            target: security-test
+            boot_timeout: "90"
+          - name: Integration Tests (QEMU)
+            suite: integration
+            target: integration-test
+            boot_timeout: "90"
+          - name: E2E Tests (QEMU)
+            suite: e2e
+            target: e2e-test
+            boot_timeout: "120"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-03-11
+          components: rust-src, llvm-tools-preview
+          targets: x86_64-unknown-none
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-runtime-${{ matrix.suite }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-runtime-${{ matrix.suite }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86
+
+      - name: Run ${{ matrix.name }}
+        timeout-minutes: 12
+        env:
+          BOOT_TIMEOUT: ${{ matrix.boot_timeout }}
+        run: make ${{ matrix.target }}
