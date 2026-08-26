@@ -180,27 +180,49 @@ def run_qemu_test(img_path: Path, timeout: int) -> int:
 
     def reader():
         assert proc.stdout is not None
+        line_chars: list[str] = []
+        scan_window = ""
+        max_pattern_len = max(len(s) for s in REQUIRED_STRINGS + FAIL_STRINGS)
+
+        def emit_partial_line() -> None:
+            if not line_chars:
+                return
+            line = "".join(line_chars).rstrip("\r\n")
+            output_lines.append(line)
+            print(f"  serial │ {line}", flush=True)
+            line_chars.clear()
+
         try:
-            for raw_line in proc.stdout:
-                line = raw_line.rstrip()
-                output_lines.append(line)
-                print(f"  serial │ {line}", flush=True)
+            while char := proc.stdout.read(1):
+                line_chars.append(char)
+                scan_window = (scan_window + char)[-max_pattern_len:]
 
                 for req in REQUIRED_STRINGS:
-                    if req in line:
+                    if req not in found and req in scan_window:
                         found.add(req)
                         ok(f"Found required string: {req!r}")
 
                 for bad in FAIL_STRINGS:
-                    if bad in line:
+                    if bad in scan_window:
                         failed_reason.append(f"Detected failure string: {bad!r}")
 
-                # If all required strings found and no failures, we're done
-                if found == set(REQUIRED_STRINGS) and not failed_reason:
+                if char == "\n":
+                    emit_partial_line()
+
+                if failed_reason:
+                    emit_partial_line()
                     done_event.set()
+                    return
+
+                # Detect the shell prompt immediately even though it has no newline.
+                if found == set(REQUIRED_STRINGS) and not failed_reason:
+                    emit_partial_line()
+                    done_event.set()
+                    return
         except Exception:
             pass
         finally:
+            emit_partial_line()
             done_event.set()
 
     t = threading.Thread(target=reader, daemon=True)
