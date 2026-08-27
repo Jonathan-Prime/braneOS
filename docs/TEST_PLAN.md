@@ -102,6 +102,22 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 
 ---
 
+### 2.7 Stress y mutation-fuzz (`kernel/src/tests.rs`)
+
+**Objetivo:** Detectar panics, corrupción de estado y violaciones de invariantes
+con cargas grandes y reproducibles.
+
+**Cobertura:**
+- 25 000 entradas binarias mutadas sobre parsers FAT32, BDP y Brane Session.
+- 10 000 roundtrips de paquetes válidos Brane Session y BDP.
+- 50 000 operaciones del frame allocator contrastadas con un modelo de referencia.
+- 256 ciclos de saturación, backpressure, drenaje FIFO y wraparound de IPC.
+
+Las semillas son fijas: un fallo produce la misma secuencia en local y CI sin
+dependencias externas ni acceso a hardware.
+
+---
+
 ## 3. Herramientas
 
 | Herramienta | Uso |
@@ -110,6 +126,7 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 | Python 3 | Boot tests, e2e harnesses, log parsing |
 | QEMU | Ejecución del sistema para boot/e2e tests |
 | Shell scripts | Orquestación de ejecución |
+| Generador xorshift determinista | Mutation-fuzz y stress reproducible |
 
 ---
 
@@ -123,6 +140,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Formatting | Activo | `cargo fmt --all -- --check` |
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
+| **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator e IPC) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
@@ -138,6 +156,7 @@ La validación local equivalente recomendada está documentada en
 
 - Todo módulo nuevo debe incluir tests unitarios.
 - Los tests de seguridad son obligatorios para cambios en política/capacidades.
+- Parsers de datos no confiables deben incorporarse a la suite mutation-fuzz.
 - Los tests boot, ACPI, security, integration y e2e se ejecutan en cada PR mediante QEMU/TCG.
 - Todos los harnesses QEMU usan el kernel release y comparten una imagen por suite.
 
@@ -152,7 +171,7 @@ La validación local equivalente recomendada está documentada en
 5. ~~Integration tests: syscall → servicio, proceso → capability broker.~~ ✅ **Completado** (`tests/integration/` + `integration_syscall_tests` en `tests.rs`)
 6. ~~Agregar jobs de CI para los harnesses Python (security, integration, e2e).~~ ✅ **Completado** (matriz `runtime-tests` en `.github/workflows/ci.yml`)
 7. ~~Agregar suspensión/reanudación ACPI S3 automatizada.~~ ✅ **Completado** (`tests/acpi/test_suspend_resume.py` + QMP `SUSPEND`/`WAKEUP` + verificación de shell post-resume)
-8. Stress tests y fuzzing de componentes críticos.
+8. ~~Stress tests y fuzzing de componentes críticos.~~ ✅ **Completado** (`fuzz_tests` + `stress_tests`, semillas deterministas y check dedicado de CI)
 9. Release v1.0: ISO booteable + documentación API publicada.
 
 ## 7. Make targets disponibles
@@ -160,11 +179,12 @@ La validación local equivalente recomendada está documentada en
 | Target | Descripción |
 |--------|-------------|
 | `make test` | Unit tests en host (sin QEMU) |
+| `make stress-test` | Mutation-fuzz de parsers + stress de allocator e IPC |
 | `make test-image` | Compila una imagen compartida con el kernel release |
 | `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
 | `make acpi-test` | Suspensión/reanudación ACPI S3 en QEMU/QMP (120 s) |
 | `make security-test` | Security tests en QEMU |
 | `make integration-test` | Integration tests en QEMU |
 | `make e2e-test` | E2E tests en QEMU |
-| `make test-all` | Suite completa (unit → boot → ACPI → security → integration → e2e) |
+| `make test-all` | Suite completa (unit → stress/fuzz → boot → ACPI → security → integration → e2e) |
 | `make docs` | Genera API docs con `cargo doc` |

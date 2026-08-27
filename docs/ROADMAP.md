@@ -189,7 +189,7 @@
 | USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
 | GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
 | Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
-| Stress tests / fuzzing | 🔲 | MEDIA | Componentes críticos |
+| Stress tests / fuzzing | ✅ | MEDIA | 35k casos parser/roundtrip + 50k ops allocator + 4k mensajes IPC; determinista en CI |
 | Release v1.0 | 🔲 | — | ISO booteable + documentación completa |
 
 **Dependencias:** Todas las fases anteriores.
@@ -201,13 +201,13 @@
 | Métrica | Valor |
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
-| **Líneas de código (Rust)** | ~10,700 |
-| **Unit tests** | 94 (incluye integration tests en `tests.rs`) |
+| **Líneas de código (Rust)** | ~11,000 |
+| **Unit tests** | 98 (incluye integration, stress y mutation-fuzz en `tests.rs`) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
-| **CI checks** | 9 (build, fmt, clippy, unit, boot, ACPI S3, security, integration, E2E) |
-| **Make targets de test** | 6 (test, boot-test, acpi-test, security-test, integration-test, e2e-test) |
-| **Fases completadas** | 9 de 10 + Fase 10 en progreso (10/16 ítems ✅) |
+| **CI checks** | 10 (build, fmt, clippy, unit, stress/fuzz, boot, ACPI S3, security, integration, E2E) |
+| **Make targets de test** | 7 (test, stress-test, boot-test, acpi-test, security-test, integration-test, e2e-test) |
+| **Fases completadas** | 9 de 10 + Fase 10 en progreso (11/16 ítems ✅) |
 
 ---
 

@@ -10,7 +10,7 @@ BUILD_FLAGS    := -Z build-std=core,compiler_builtins,alloc \
                   --target x86_64-unknown-none
 
 .PHONY: build build-release run run-release test fmt clippy \
-        test-image boot-test acpi-test security-test integration-test e2e-test test-all \
+        stress-test test-image boot-test acpi-test security-test integration-test e2e-test test-all \
         docs iso release clean help
 
 # --- Build -------------------------------------------------------------------
@@ -40,6 +40,10 @@ clippy: ## Run Clippy lints
 
 test: ## Run unit + integration tests (host-side, no QEMU)
 	cd kernel && cargo test --lib
+
+stress-test: ## Run deterministic mutation fuzzing and subsystem stress tests
+	cd kernel && cargo test --lib fuzz_tests
+	cd kernel && cargo test --lib stress_tests
 
 # --- Housekeeping ------------------------------------------------------------
 
@@ -71,7 +75,7 @@ e2e-test: test-image ## E2E tests: brsh commands + full boot flow verification
 	python3 tests/e2e/test_brsh_commands.py --no-inject --img $(TEST_IMAGE)
 	python3 tests/e2e/test_full_boot_flow.py --img $(TEST_IMAGE)
 
-test-all: test boot-test acpi-test security-test integration-test e2e-test ## Full test suite (unit → boot → ACPI → security → integration → e2e)
+test-all: test stress-test boot-test acpi-test security-test integration-test e2e-test ## Full test suite (unit → stress/fuzz → boot → ACPI → security → integration → e2e)
 	@echo ""
 	@echo "  \033[32mAll test suites passed ✓\033[0m"
 

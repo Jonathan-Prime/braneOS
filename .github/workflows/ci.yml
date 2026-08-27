@@ -7,11 +7,12 @@
 #   2. Code formatting (rustfmt)
 #   3. Lints (clippy)
 #   4. Kernel unit tests
-#   5. Boot test — QEMU serial output verification (60 s timeout)
-#   6. ACPI S3 test — suspend, QMP wake and post-resume shell
-#   7. Security tests — capability denial and privilege escalation
-#   8. Integration tests — syscalls/services and capability broker
-#   9. E2E tests — shell readiness and complete boot sequence
+#   5. Deterministic stress and mutation-fuzz tests
+#   6. Boot test — QEMU serial output verification (60 s timeout)
+#   7. ACPI S3 test — suspend, QMP wake and post-resume shell
+#   8. Security tests — capability denial and privilege escalation
+#   9. Integration tests — syscalls/services and capability broker
+#  10. E2E tests — shell readiness and complete boot sequence
 # ============================================================
 
 name: CI
@@ -138,6 +139,36 @@ jobs:
 
       - name: Run kernel unit tests
         run: cargo test -p brane_os_kernel --lib
+
+  # -----------------------------------------------------------------
+  # Stability — deterministic parser fuzzing and subsystem stress
+  # -----------------------------------------------------------------
+  stability-tests:
+    name: Stress and Fuzz Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-03-11
+          components: rust-src
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-stability-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-stability-
+            ${{ runner.os }}-tests-
+
+      - name: Run deterministic stress and fuzz suites
+        run: make stress-test
 
   # -----------------------------------------------------------------
   # Boot Test — run Brane OS in QEMU and verify serial output

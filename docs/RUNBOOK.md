@@ -133,10 +133,14 @@ make test-all
 - kernel bare-metal con `-D warnings`,
 - runner host con `-D warnings`.
 
-`make test-all` ejecuta unit, boot, ACPI S3, security, integration y E2E. Los targets
-QEMU comparten una imagen del kernel release —el ELF debug excede el timeout
-de carga del bootloader BIOS bajo TCG— y detectan el prompt `brane>` aunque no
-termine con salto de línea.
+`make test-all` ejecuta unit, stress/mutation-fuzz, boot, ACPI S3, security,
+integration y E2E. Los targets QEMU comparten una imagen del kernel release —el
+ELF debug excede el timeout de carga del bootloader BIOS bajo TCG— y detectan el
+prompt `brane>` aunque no termine con salto de línea.
+
+`make stress-test` usa semillas fijas para mutar los parsers FAT32, BDP y Brane
+Session, comparar el frame allocator con un modelo de referencia y saturar las
+colas IPC. No requiere QEMU y sus fallos son reproducibles.
 
 El test ACPI controla QEMU mediante QMP: ordena `suspend` desde `brsh`, espera
 los eventos `SUSPEND` y `WAKEUP`, envía `system_wakeup` y confirma que el shell
@@ -157,6 +161,7 @@ Jobs actuales:
 | Formatting | `cargo fmt --all -- --check` |
 | Clippy Lints | Kernel bare-metal + runner host con `-D warnings` |
 | Unit Tests | `cargo test -p brane_os_kernel --lib` |
+| Stress and Fuzz Tests | `make stress-test` |
 | Boot Test (QEMU) | `python3 tests/boot/test_boot.py` |
 | ACPI S3 Test (QEMU/QMP) | `make acpi-test` |
 | Security Tests (QEMU) | `make security-test` |
@@ -173,7 +178,6 @@ faltan:
 - publicar un artefacto versionado de la imagen booteable,
 - documentar los flags de QEMU para BIOS frente a UEFI,
 - ampliar la validación ACPI S3 a hardware físico adicional,
-- añadir stress tests y fuzzing,
 - cerrar el proceso v1.0 con checksums y notas de versión.
 
 ---

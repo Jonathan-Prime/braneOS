@@ -9,12 +9,44 @@
 // so they test logic only — not hardware interactions.
 // ============================================================
 
+/// Small deterministic generator used by stress and mutation-fuzz tests.
+///
+/// Keeping the generator dependency-free makes the exact input stream stable
+/// across local runs and CI. A failing seed can therefore be reproduced by
+/// rerunning the same test.
+struct DeterministicRng(u64);
+
+impl DeterministicRng {
+    const fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut value = self.0;
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        self.0 = value;
+        value
+    }
+
+    fn next_usize(&mut self, upper_bound: usize) -> usize {
+        (self.next_u64() as usize) % upper_bound
+    }
+
+    fn fill(&mut self, output: &mut [u8]) {
+        for byte in output {
+            *byte = self.next_u64() as u8;
+        }
+    }
+}
+
 #[cfg(test)]
 mod frame_allocator_tests {
     use crate::memory::frame_allocator::BitmapFrameAllocator;
     use spin::{Mutex, MutexGuard};
 
-    static FRAME_ALLOCATOR_TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(super) static FRAME_ALLOCATOR_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn lock_tests() -> MutexGuard<'static, ()> {
         FRAME_ALLOCATOR_TEST_LOCK.lock()
@@ -1095,5 +1127,233 @@ mod security_capability_tests {
             crate::audit::AuditAction::CapabilityGranted(_)
         ));
         assert!(matches!(event.result, crate::audit::AuditResult::Success));
+    }
+}
+
+#[cfg(test)]
+mod fuzz_tests {
+    use super::DeterministicRng;
+    use crate::brane_discovery::{DiscoveryPacket, PacketType};
+    use crate::brane_session::{SessionPacket, SessionPacketType};
+    use crate::fat32::{Fat32BootSector, PartitionEntry, SECTOR_SIZE};
+    use std::string::String;
+
+    const FUZZ_CASES: usize = 25_000;
+    const MAX_INPUT: usize = 768;
+
+    #[test]
+    fn fuzz_untrusted_parsers_are_total() {
+        let mut rng = DeterministicRng::new(0xB4A9_E5E5_5EED_2026);
+        let mut storage = [0u8; MAX_INPUT];
+
+        for case in 0..FUZZ_CASES {
+            let len = rng.next_usize(MAX_INPUT + 1);
+            rng.fill(&mut storage[..len]);
+
+            // Periodically retain the FAT signature so the deeper boot-sector
+            // field parser is exercised, rather than only its early reject.
+            if case % 4 == 0 && len >= SECTOR_SIZE {
+                storage[510] = 0x55;
+                storage[511] = 0xAA;
+            }
+
+            let input = &storage[..len];
+            let _ = PartitionEntry::parse(input);
+            let _ = Fat32BootSector::parse(input);
+            let _ = DiscoveryPacket::parse(input);
+            let parsed = SessionPacket::parse(input);
+
+            if let Some((packet, consumed)) = parsed {
+                assert!((4..=input.len()).contains(&consumed));
+                assert_eq!(packet.payload.len(), consumed - 4);
+            }
+        }
+    }
+
+    #[test]
+    fn fuzz_valid_protocol_packets_roundtrip() {
+        let mut rng = DeterministicRng::new(0x5E55_10A5_CAFE_BABE);
+
+        for case in 0..10_000 {
+            let payload_len = rng.next_usize(1025);
+            let mut payload = std::vec![0; payload_len];
+            rng.fill(&mut payload);
+
+            let ptype = match case % 6 {
+                0 => SessionPacketType::HandshakeInit,
+                1 => SessionPacketType::HandshakeResponse,
+                2 => SessionPacketType::CapabilityExchange,
+                3 => SessionPacketType::EncryptedData,
+                4 => SessionPacketType::Alert,
+                _ => SessionPacketType::Disconnect,
+            };
+            let encoded = SessionPacket {
+                ptype,
+                payload: payload.clone(),
+            }
+            .to_bytes();
+            let (decoded, consumed) = SessionPacket::parse(&encoded).expect("valid packet");
+            assert_eq!(consumed, encoded.len());
+            assert_eq!(decoded.ptype, ptype);
+            assert_eq!(decoded.payload, payload);
+
+            let discovery = DiscoveryPacket {
+                ptype: if case % 2 == 0 {
+                    PacketType::Announce
+                } else {
+                    PacketType::Discover
+                },
+                node_id: String::from("00112233445566778899aabbccddeeff"),
+                name: String::from("brane-node"),
+                capabilities: String::from("IPC_SEND,BRANE_CONNECT"),
+            };
+            let discovery_bytes = discovery.to_bytes();
+            let reparsed = DiscoveryPacket::parse(&discovery_bytes).expect("valid discovery");
+            assert_eq!(reparsed.ptype, discovery.ptype);
+            assert_eq!(reparsed.node_id, discovery.node_id);
+            assert_eq!(reparsed.name, discovery.name);
+            assert_eq!(reparsed.capabilities, discovery.capabilities);
+        }
+    }
+}
+
+#[cfg(test)]
+mod stress_tests {
+    use super::frame_allocator_tests::FRAME_ALLOCATOR_TEST_LOCK;
+    use super::DeterministicRng;
+    use crate::ipc::{IpcManager, IpcMessage, MessageType};
+    use crate::memory::frame_allocator::{BitmapFrameAllocator, FRAME_SIZE};
+    use crate::syscall::{SyscallError, SyscallResult};
+    use std::string::String;
+    use std::vec::Vec;
+
+    const MODEL_FRAMES: usize = 1024;
+    const ALLOCATOR_OPERATIONS: usize = 50_000;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum FrameState {
+        Reserved,
+        Free,
+        Allocated,
+    }
+
+    #[test]
+    fn stress_frame_allocator_matches_reference_model() {
+        let _guard = FRAME_ALLOCATOR_TEST_LOCK.lock();
+        let mut rng = DeterministicRng::new(0xA110_CA70_5EED_0001);
+        let mut allocator = BitmapFrameAllocator::new();
+        let mut model = [FrameState::Reserved; MODEL_FRAMES];
+        let mut allocated = Vec::new();
+
+        for _ in 0..ALLOCATOR_OPERATIONS {
+            match rng.next_usize(5) {
+                0 => {
+                    let start = rng.next_usize(MODEL_FRAMES);
+                    let count = rng.next_usize(32) + 1;
+                    let end = (start + count).min(MODEL_FRAMES);
+                    allocator
+                        .mark_region_free((start * FRAME_SIZE) as u64, (end * FRAME_SIZE) as u64);
+                    model[start..end].fill(FrameState::Free);
+                    allocated.retain(|frame| !(*frame >= start && *frame < end));
+                }
+                1 => {
+                    let start = rng.next_usize(MODEL_FRAMES);
+                    let count = rng.next_usize(32) + 1;
+                    let end = (start + count).min(MODEL_FRAMES);
+                    allocator
+                        .mark_region_used((start * FRAME_SIZE) as u64, (end * FRAME_SIZE) as u64);
+                    model[start..end].fill(FrameState::Reserved);
+                    allocated.retain(|frame| !(*frame >= start && *frame < end));
+                }
+                2 => {
+                    let expected = model.iter().position(|state| *state == FrameState::Free);
+                    let actual = allocator.allocate().map(|addr| addr as usize / FRAME_SIZE);
+                    assert_eq!(actual, expected);
+                    if let Some(frame) = actual {
+                        model[frame] = FrameState::Allocated;
+                        allocated.push(frame);
+                    }
+                }
+                3 => {
+                    let limit = rng.next_usize(MODEL_FRAMES + 1);
+                    let expected = model[..limit]
+                        .iter()
+                        .position(|state| *state == FrameState::Free);
+                    let actual = allocator
+                        .allocate_below((limit * FRAME_SIZE) as u64)
+                        .map(|addr| addr as usize / FRAME_SIZE);
+                    assert_eq!(actual, expected);
+                    if let Some(frame) = actual {
+                        model[frame] = FrameState::Allocated;
+                        allocated.push(frame);
+                    }
+                }
+                _ if !allocated.is_empty() => {
+                    let index = rng.next_usize(allocated.len());
+                    let frame = allocated.swap_remove(index);
+                    allocator.deallocate((frame * FRAME_SIZE) as u64);
+                    model[frame] = FrameState::Free;
+                }
+                _ => {}
+            }
+
+            let expected_free = model
+                .iter()
+                .filter(|state| **state == FrameState::Free)
+                .count();
+            assert_eq!(allocator.free_count(), expected_free);
+        }
+    }
+
+    #[test]
+    fn stress_ipc_queue_wraparound_and_backpressure() {
+        std::thread::Builder::new()
+            .name(String::from("ipc-stress"))
+            // Construction of the fixed 64 × 16 × 4 KiB queue table may
+            // temporarily require two copies before optimization.
+            .stack_size(32 * 1024 * 1024)
+            .spawn(run_ipc_queue_stress)
+            .expect("spawn IPC stress thread")
+            .join()
+            .expect("IPC stress thread panicked");
+    }
+
+    fn run_ipc_queue_stress() {
+        const QUEUE_CAPACITY: usize = 16;
+        const CYCLES: usize = 256;
+        let mut ipc = IpcManager::new();
+
+        for cycle in 0..CYCLES {
+            for sequence in 0..QUEUE_CAPACITY {
+                let payload = [cycle as u8, sequence as u8];
+                let message = IpcMessage::new(1, 7, MessageType::Notification, &payload)
+                    .expect("bounded payload");
+                assert!(matches!(ipc.send(message), SyscallResult::Ok(0)));
+            }
+
+            let overflow = IpcMessage::new(1, 7, MessageType::Notification, b"overflow")
+                .expect("bounded payload");
+            assert!(matches!(
+                ipc.send(overflow),
+                SyscallResult::Err(SyscallError::WouldBlock)
+            ));
+            assert_eq!(ipc.pending_count(7), QUEUE_CAPACITY);
+
+            for sequence in 0..QUEUE_CAPACITY {
+                let message = ipc.recv(7).expect("queued message");
+                assert_eq!(message.data(), &[cycle as u8, sequence as u8]);
+            }
+            assert!(matches!(ipc.recv(7), Err(SyscallError::NoMessage)));
+        }
+
+        let expected_delivered = (CYCLES * QUEUE_CAPACITY) as u64;
+        assert_eq!(
+            ipc.stats(),
+            (
+                expected_delivered + CYCLES as u64,
+                expected_delivered,
+                CYCLES as u64
+            )
+        );
     }
 }
