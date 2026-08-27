@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
 > Estado: **Activo**.  
-> Última actualización: **2026-08-25**
+> Última actualización: **2026-08-27**
 
 ---
 
@@ -60,7 +60,22 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 
 ---
 
-### 2.4 Security Tests (`tests/security/`)
+### 2.4 ACPI Tests (`tests/acpi/`)
+
+**Objetivo:** Validar la transición de energía S3 y la recuperación del kernel.
+
+**Cobertura:**
+- El kernel publica S3 cuando el firmware lo anuncia en AML.
+- QEMU entra en suspensión y emite el evento QMP `SUSPEND`.
+- `system_wakeup` reactiva el kernel y produce el evento QMP `WAKEUP`.
+- El trampoline FACS devuelve la CPU al kernel y restaura interrupciones.
+- El teclado y `brsh` vuelven a responder después del resume.
+
+**Herramientas:** Python 3, QEMU y QMP sobre socket Unix.
+
+---
+
+### 2.5 Security Tests (`tests/security/`)
 
 **Objetivo:** Validar modelo de seguridad.
 
@@ -73,7 +88,7 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 
 ---
 
-### 2.5 End-to-End Tests (`tests/e2e/`)
+### 2.6 End-to-End Tests (`tests/e2e/`)
 
 **Objetivo:** Validar escenarios completos.
 
@@ -109,6 +124,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
+| **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
 | **Integration tests (QEMU)** | **Activo** | `make integration-test` (syscall/service + capability broker) |
 | **E2E tests (QEMU)** | **Activo** | `make e2e-test` (disponibilidad de brsh + secuencia completa de boot) |
@@ -122,7 +138,7 @@ La validación local equivalente recomendada está documentada en
 
 - Todo módulo nuevo debe incluir tests unitarios.
 - Los tests de seguridad son obligatorios para cambios en política/capacidades.
-- Los boot, security, integration y e2e tests se ejecutan en cada PR mediante QEMU/TCG.
+- Los tests boot, ACPI, security, integration y e2e se ejecutan en cada PR mediante QEMU/TCG.
 - Todos los harnesses QEMU usan el kernel release y comparten una imagen por suite.
 
 ---
@@ -135,8 +151,9 @@ La validación local equivalente recomendada está documentada en
 4. ~~Agregar pruebas e2e mínimas sobre `brsh`.~~ ✅ **Completado** (`tests/e2e/test_brsh_commands.py` + `test_full_boot_flow.py`)
 5. ~~Integration tests: syscall → servicio, proceso → capability broker.~~ ✅ **Completado** (`tests/integration/` + `integration_syscall_tests` en `tests.rs`)
 6. ~~Agregar jobs de CI para los harnesses Python (security, integration, e2e).~~ ✅ **Completado** (matriz `runtime-tests` en `.github/workflows/ci.yml`)
-7. Stress tests y fuzzing de componentes críticos.
-8. Release v1.0: ISO booteable + documentación API publicada.
+7. ~~Agregar suspensión/reanudación ACPI S3 automatizada.~~ ✅ **Completado** (`tests/acpi/test_suspend_resume.py` + QMP `SUSPEND`/`WAKEUP` + verificación de shell post-resume)
+8. Stress tests y fuzzing de componentes críticos.
+9. Release v1.0: ISO booteable + documentación API publicada.
 
 ## 7. Make targets disponibles
 
@@ -145,8 +162,9 @@ La validación local equivalente recomendada está documentada en
 | `make test` | Unit tests en host (sin QEMU) |
 | `make test-image` | Compila una imagen compartida con el kernel release |
 | `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
+| `make acpi-test` | Suspensión/reanudación ACPI S3 en QEMU/QMP (120 s) |
 | `make security-test` | Security tests en QEMU |
 | `make integration-test` | Integration tests en QEMU |
 | `make e2e-test` | E2E tests en QEMU |
-| `make test-all` | Suite completa (unit → boot → security → integration → e2e) |
+| `make test-all` | Suite completa (unit → boot → ACPI → security → integration → e2e) |
 | `make docs` | Genera API docs con `cargo doc` |

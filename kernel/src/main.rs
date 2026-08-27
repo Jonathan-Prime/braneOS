@@ -108,6 +108,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     usermode::init_syscall_msrs();
 
+    let keyboard_ready = keyboard::init();
+    serial_println!("[kbd]  PS/2 keyboard initialized: {}.", keyboard_ready);
+
     pic::init();
     // pic::init() prints its own message
 
@@ -150,6 +153,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Initialize ACPI power management
     if let Some(rsdp_addr) = boot_info.rsdp_addr.into_option() {
         acpi::init(rsdp_addr, phys_offset);
+        match acpi::configure_wake_trampoline(&mut mapper, &mut frame_alloc, phys_offset) {
+            Ok(address) => {
+                serial_println!(
+                    "[acpi] S3 wake trampoline ready at physical address 0x{:X}.",
+                    address
+                );
+            }
+            Err(error) => {
+                serial_println!(
+                    "[acpi] S3 suspend unavailable: {:?}; shutdown/reboot remain enabled.",
+                    error
+                );
+            }
+        }
     } else {
         serial_println!("[acpi] RSDP unavailable; power management disabled.");
     }
@@ -492,9 +509,29 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
             let cmd_str = core::str::from_utf8(&cmd_buf[..len]).unwrap_or("");
             shell::execute(cmd_str);
+            if acpi::take_resume_pending() {
+                resume_platform();
+            }
             shell::prompt();
         }
     }
+}
+
+/// Restore platform state that firmware and devices may reset during ACPI S3.
+fn resume_platform() {
+    serial::init();
+    gdt::init();
+    idt::init();
+    usermode::init_syscall_msrs();
+    let keyboard_ready = keyboard::init();
+    pic::init();
+    let network_ready = net::init();
+    serial_println!(
+        "[acpi] Resume complete; interrupts restored, keyboard={}, network={}",
+        keyboard_ready,
+        network_ready,
+    );
+    tty::tty_println("System resumed from ACPI S3.");
 }
 
 // -----------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
 > Estado: **Activo** — se actualiza conforme el proyecto avanza.  
-> Última actualización: **2026-08-25**
+> Última actualización: **2026-08-27**
 
 ---
 
@@ -185,7 +185,7 @@
 | **E2E tests** | ✅ | ALTA | `tests/e2e/`: disponibilidad de brsh + boot flow (20 fases); job QEMU en CI |
 | **Documentación de API** | ✅ | MEDIA | `make docs` → `cargo doc -p brane_os_kernel` |
 | Multi-core (SMP) | 🔲 | MEDIA | APIC, per-CPU scheduler (requiere hardware real) |
-| ACPI power management | 🔄 | MEDIA | RSDP/XSDT/RSDT/FADT, shutdown y reboot ✅ en QEMU; sleep/wake 🔲 |
+| ACPI power management | ✅ | MEDIA | S3 suspend/resume vía FACS + trampolín real→long mode; shutdown/reboot; test QEMU/QMP |
 | USB stack (xHCI) | 🔲 | MEDIA | Para periféricos reales |
 | GPU driver (básico) | 🔲 | BAJA | Framebuffer → GPU acceleration |
 | Package manager (`bpkg`) | 🔲 | BAJA | Instalación de software |
@@ -202,12 +202,12 @@
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~10,700 |
-| **Unit tests** | 91 (incluye integration tests en `tests.rs`) |
+| **Unit tests** | 94 (incluye integration tests en `tests.rs`) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
-| **Harnesses de test Python** | 7 (boot + 2 security + 2 integration + 2 e2e) |
-| **CI checks** | 8 (build, fmt, clippy, unit, boot, security, integration, E2E) |
-| **Make targets de test** | 5 (test, boot-test, security-test, integration-test, e2e-test) |
-| **Fases completadas** | 9 de 10 + Fase 10 en progreso (9/16 ítems ✅, ACPI parcial) |
+| **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
+| **CI checks** | 9 (build, fmt, clippy, unit, boot, ACPI S3, security, integration, E2E) |
+| **Make targets de test** | 6 (test, boot-test, acpi-test, security-test, integration-test, e2e-test) |
+| **Fases completadas** | 9 de 10 + Fase 10 en progreso (10/16 ítems ✅) |
 
 ---
 

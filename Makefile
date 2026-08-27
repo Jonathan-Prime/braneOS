@@ -10,7 +10,7 @@ BUILD_FLAGS    := -Z build-std=core,compiler_builtins,alloc \
                   --target x86_64-unknown-none
 
 .PHONY: build build-release run run-release test fmt clippy \
-        test-image boot-test security-test integration-test e2e-test test-all \
+        test-image boot-test acpi-test security-test integration-test e2e-test test-all \
         docs iso release clean help
 
 # --- Build -------------------------------------------------------------------
@@ -56,6 +56,9 @@ test-image: build-release ## Build the shared release-kernel image used by QEMU 
 boot-test: test-image ## Run automated release-kernel boot test in QEMU (60 s timeout)
 	python3 tests/boot/test_boot.py --img $(TEST_IMAGE)
 
+acpi-test: test-image ## ACPI test: S3 suspend, QMP wake and post-resume shell
+	python3 tests/acpi/test_suspend_resume.py --img $(TEST_IMAGE)
+
 security-test: test-image ## Security tests: capability denial + privilege escalation
 	python3 tests/security/test_capability_denial.py --img $(TEST_IMAGE)
 	python3 tests/security/test_privilege_escalation.py --img $(TEST_IMAGE)
@@ -68,7 +71,7 @@ e2e-test: test-image ## E2E tests: brsh commands + full boot flow verification
 	python3 tests/e2e/test_brsh_commands.py --no-inject --img $(TEST_IMAGE)
 	python3 tests/e2e/test_full_boot_flow.py --img $(TEST_IMAGE)
 
-test-all: test boot-test security-test integration-test e2e-test ## Full test suite (unit → boot → security → integration → e2e)
+test-all: test boot-test acpi-test security-test integration-test e2e-test ## Full test suite (unit → boot → ACPI → security → integration → e2e)
 	@echo ""
 	@echo "  \033[32mAll test suites passed ✓\033[0m"
 

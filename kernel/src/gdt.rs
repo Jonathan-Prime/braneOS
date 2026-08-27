@@ -11,7 +11,7 @@
 // faults when the kernel stack overflows.
 // ============================================================
 
-use spin::Lazy;
+use spin::{Lazy, Mutex};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
@@ -49,24 +49,31 @@ struct Gdt {
     user_code_selector: SegmentSelector,
 }
 
-static GDT: Lazy<Gdt> = Lazy::new(|| {
-    let mut gdt = GlobalDescriptorTable::new();
-    let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
-    let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
-    let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
-    // Ring-3 segments: data MUST come before code so STAR[63:48] points
-    // to the data selector and STAR[63:48]+8 lands on the code selector.
-    let user_data_selector = gdt.append(Descriptor::user_data_segment());
-    let user_code_selector = gdt.append(Descriptor::user_code_segment());
-    Gdt {
-        table: gdt,
-        kernel_code_selector,
-        kernel_data_selector,
-        tss_selector,
-        user_data_selector,
-        user_code_selector,
+impl Gdt {
+    fn new() -> Self {
+        let mut table = GlobalDescriptorTable::new();
+        let kernel_code_selector = table.append(Descriptor::kernel_code_segment());
+        let kernel_data_selector = table.append(Descriptor::kernel_data_segment());
+        let tss_selector = table.append(Descriptor::tss_segment(&TSS));
+        // Ring-3 segments: data MUST come before code so STAR[63:48] points
+        // to the data selector and STAR[63:48]+8 lands on the code selector.
+        let user_data_selector = table.append(Descriptor::user_data_segment());
+        let user_code_selector = table.append(Descriptor::user_code_segment());
+        Self {
+            table,
+            kernel_code_selector,
+            kernel_data_selector,
+            tss_selector,
+            user_data_selector,
+            user_code_selector,
+        }
     }
-});
+}
+
+// Loading TR marks the TSS descriptor busy in memory. Reconstructing the GDT
+// before each load restores an available TSS descriptor, which makes `init`
+// safe to call again after ACPI S3 firmware has replaced the descriptor tables.
+static GDT: Lazy<Mutex<Gdt>> = Lazy::new(|| Mutex::new(Gdt::new()));
 
 /// Initialize the GDT and load it into the CPU.
 ///
@@ -75,27 +82,29 @@ pub fn init() {
     use x86_64::instructions::segmentation::{Segment, CS, DS, ES, SS};
     use x86_64::instructions::tables::load_tss;
 
-    GDT.table.load();
+    let mut gdt = GDT.lock();
+    *gdt = Gdt::new();
     unsafe {
-        CS::set_reg(GDT.kernel_code_selector);
-        DS::set_reg(GDT.kernel_data_selector);
-        ES::set_reg(GDT.kernel_data_selector);
-        SS::set_reg(GDT.kernel_data_selector);
-        load_tss(GDT.tss_selector);
+        gdt.table.load_unsafe();
+        CS::set_reg(gdt.kernel_code_selector);
+        DS::set_reg(gdt.kernel_data_selector);
+        ES::set_reg(gdt.kernel_data_selector);
+        SS::set_reg(gdt.kernel_data_selector);
+        load_tss(gdt.tss_selector);
     }
 }
 
 /// Raw selector value for ring-0 code segment (used in STAR MSR).
 pub fn kernel_code_selector() -> u16 {
-    GDT.kernel_code_selector.0
+    GDT.lock().kernel_code_selector.0
 }
 
 /// Raw selector value for ring-3 data segment (used in STAR MSR).
 pub fn user_data_selector() -> u16 {
-    GDT.user_data_selector.0
+    GDT.lock().user_data_selector.0
 }
 
 /// Raw selector value for ring-3 code segment (used in iretq trampoline).
 pub fn user_code_selector() -> u16 {
-    GDT.user_code_selector.0
+    GDT.lock().user_code_selector.0
 }

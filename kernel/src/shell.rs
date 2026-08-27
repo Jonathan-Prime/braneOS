@@ -52,6 +52,8 @@ pub fn execute(line: &str) {
         "dns" => cmd_dns(args),
         "sockets" => cmd_sockets(),
         "clear" => cmd_clear(),
+        "acpi" => cmd_acpi(),
+        "suspend" | "sleep" => cmd_suspend(),
         "reboot" => cmd_reboot(),
         "shutdown" | "poweroff" => cmd_shutdown(),
         "sched" => cmd_sched(),
@@ -87,6 +89,8 @@ fn cmd_help() {
     tty::tty_println("  dns <host>    Resolve hostname");
     tty::tty_println("  sockets       List open sockets");
     tty::tty_println("  clear         Clear screen");
+    tty::tty_println("  acpi          ACPI sleep-state status");
+    tty::tty_println("  suspend       Suspend to RAM (ACPI S3)");
     tty::tty_println("  reboot        Reboot system");
     tty::tty_println("  shutdown      Shutdown system");
 }
@@ -462,6 +466,39 @@ fn cmd_clear() {
     serial_println!("\x1b[2J\x1b[H");
     // Clear framebuffer
     crate::framebuffer::fb_clear();
+}
+
+fn cmd_acpi() {
+    use core::fmt::Write;
+
+    let info = acpi::info();
+    let mut buf = [0u8; 256];
+    let mut cursor = WriteBuf::new(&mut buf);
+    let _ = writeln!(cursor, "ACPI initialized: {}", info.initialized);
+    let _ = writeln!(
+        cursor,
+        "Sleep states: S1={} S3={} S4={} S5={}",
+        info.s1_supported, info.s3_supported, info.s4_supported, info.s5_supported
+    );
+    let _ = writeln!(
+        cursor,
+        "S3 wake trampoline: {} ({:?})",
+        info.wake_trampoline_ready, info.wake_trampoline_phys
+    );
+    tty::tty_print(cursor.as_str());
+}
+
+fn cmd_suspend() {
+    tty::tty_println("Suspending to ACPI S3...");
+    let result = acpi::suspend_s3();
+    if let Err(error) = result {
+        use core::fmt::Write;
+
+        let mut buf = [0u8; 96];
+        let mut cursor = WriteBuf::new(&mut buf);
+        let _ = write!(cursor, "Suspend failed: {:?}", error);
+        tty::tty_println(cursor.as_str());
+    }
 }
 
 fn cmd_reboot() {

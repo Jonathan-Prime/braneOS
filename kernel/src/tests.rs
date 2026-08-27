@@ -65,6 +65,18 @@ mod frame_allocator_tests {
     }
 
     #[test]
+    fn allocate_below_respects_physical_limit() {
+        let _guard = lock_tests();
+        let mut alloc = BitmapFrameAllocator::new();
+        alloc.mark_region_free(0x9_0000, 0x9_2000);
+        alloc.mark_region_free(0x10_0000, 0x10_2000);
+
+        assert_eq!(alloc.allocate_below(0x10_0000), Some(0x9_0000));
+        assert_eq!(alloc.allocate_below(0x9_0000), None);
+        assert_eq!(alloc.allocate(), Some(0x9_1000));
+    }
+
+    #[test]
     fn deallocate_returns_frame() {
         let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();

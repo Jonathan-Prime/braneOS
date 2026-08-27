@@ -41,7 +41,12 @@ impl InterruptIndex {
 /// Must be called after `idt::init()`.
 pub fn init() {
     unsafe {
-        PICS.lock().initialize();
+        let mut pics = PICS.lock();
+        pics.initialize();
+        // Firmware may return from ACPI S3 with every IRQ masked. Keep the
+        // timer, keyboard and cascade line enabled instead of restoring the
+        // firmware-provided masks captured by `initialize`.
+        pics.write_masks(0b1111_1000, 0xff);
     }
     x86_64::instructions::interrupts::enable();
     crate::serial_println!("[pic]  8259 PIC initialized. Hardware interrupts enabled.");

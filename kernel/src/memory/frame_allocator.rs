@@ -93,13 +93,24 @@ impl BitmapFrameAllocator {
     ///
     /// Returns the physical address of the frame, or `None` if OOM.
     pub fn allocate(&mut self) -> Option<u64> {
+        self.allocate_below(MAX_MEMORY as u64)
+    }
+
+    /// Allocate the lowest free frame whose complete range is below `limit`.
+    ///
+    /// ACPI's legacy firmware waking vector must live below 1 MiB on IA-PC
+    /// platforms, so callers need a constrained allocation rather than an
+    /// arbitrary physical frame.
+    pub fn allocate_below(&mut self, limit: u64) -> Option<u64> {
+        let limit_frames = ((limit as usize) / FRAME_SIZE).min(MAX_FRAMES);
+
         #[allow(clippy::needless_range_loop)]
-        for byte_idx in 0..BITMAP_SIZE {
+        for byte_idx in 0..limit_frames.div_ceil(8) {
             if unsafe { ALLOCATOR_BITMAP[byte_idx] } != 0xFF {
                 // This byte has at least one free bit
                 for bit in 0..8 {
                     let frame = byte_idx * 8 + bit;
-                    if frame < MAX_FRAMES && !self.is_used(frame) {
+                    if frame < limit_frames && !self.is_used(frame) {
                         self.set_used(frame);
                         self.free_frames = self.free_frames.saturating_sub(1);
                         return Some((frame * FRAME_SIZE) as u64);

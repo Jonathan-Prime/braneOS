@@ -8,9 +8,10 @@
 #   3. Lints (clippy)
 #   4. Kernel unit tests
 #   5. Boot test — QEMU serial output verification (60 s timeout)
-#   6. Security tests — capability denial and privilege escalation
-#   7. Integration tests — syscalls/services and capability broker
-#   8. E2E tests — shell readiness and complete boot sequence
+#   6. ACPI S3 test — suspend, QMP wake and post-resume shell
+#   7. Security tests — capability denial and privilege escalation
+#   8. Integration tests — syscalls/services and capability broker
+#   9. E2E tests — shell readiness and complete boot sequence
 # ============================================================
 
 name: CI
@@ -190,6 +191,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: ACPI S3 Test (QEMU)
+            suite: acpi
+            target: acpi-test
+            boot_timeout: "120"
           - name: Security Tests (QEMU)
             suite: security
             target: security-test
