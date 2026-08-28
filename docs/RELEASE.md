@@ -36,7 +36,8 @@ shasum -a 256 -c brane_os_v1.0.0.iso.sha256
 ## Test manually in QEMU
 
 The recommended automated command is `make iso-test`. It locates OVMF through
-`OVMF_CODE` and `OVMF_VARS` or through common Linux/Homebrew paths.
+`OVMF_CODE` and `OVMF_VARS` or through common Linux/Homebrew paths, including
+the Ubuntu 4 MiB firmware names `OVMF_CODE_4M.fd` and `OVMF_VARS_4M.fd`.
 
 The standalone BIOS image can be tested with:
 

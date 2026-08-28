@@ -64,7 +64,13 @@ QEMU_BIN = os.environ.get("QEMU_BIN", "qemu-system-x86_64")
 
 
 def find_ovmf() -> tuple[Path, Path] | None:
-    """Locate UEFI code and variable images on common installations."""
+    """Locate UEFI code and variable images on common installations.
+
+    Debian/Ubuntu releases have used both the legacy ``OVMF_CODE.fd`` names
+    and the newer 4 MiB variants (``OVMF_CODE_4M.fd``). Homebrew and Fedora
+    package the same firmware under edk2/qemu directories, so keep explicit
+    pairs first and then discover a matching CODE/VARS pair by filename.
+    """
     candidates = [
         (os.environ.get("OVMF_CODE"), os.environ.get("OVMF_VARS")),
         (
@@ -76,13 +82,40 @@ def find_ovmf() -> tuple[Path, Path] | None:
             "/opt/homebrew/opt/qemu/share/qemu/edk2-i386-vars.fd",
         ),
         ("/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/OVMF/OVMF_VARS.fd"),
+        ("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd"),
+        ("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"),
         ("/usr/share/edk2/x64/OVMF_CODE.fd", "/usr/share/edk2/ovmf_vars.fd"),
+        ("/usr/share/edk2/x64/OVMF_CODE_4M.fd", "/usr/share/edk2/x64/OVMF_VARS_4M.fd"),
+        ("/usr/share/edk2/ovmf/edk2-x86_64-code.fd", "/usr/share/edk2/ovmf/edk2-i386-vars.fd"),
+        ("/usr/share/qemu/edk2-x86_64-code.fd", "/usr/share/qemu/edk2-i386-vars.fd"),
     ]
     for code_candidate, vars_candidate in candidates:
         if code_candidate and vars_candidate:
             code = Path(code_candidate)
             variables = Path(vars_candidate)
             if code.exists() and variables.exists():
+                return code, variables
+
+    # Fall back to package layouts that add a suffix (for example ``_4M``)
+    # or place the files below a versioned edk2 directory. Only pair files
+    # whose names differ by CODE versus VARS so a secure-boot image cannot be
+    # accidentally combined with an unrelated variable store.
+    search_dirs = [
+        Path("/usr/share/OVMF"),
+        Path("/usr/share/edk2"),
+        Path("/usr/share/edk2/x64"),
+        Path("/usr/share/qemu"),
+        Path("/usr/local/share/qemu"),
+        Path("/opt/homebrew/share/qemu"),
+    ]
+    for directory in search_dirs:
+        if not directory.is_dir():
+            continue
+        for code in sorted(directory.rglob("*.fd")):
+            if "code" not in code.name.lower():
+                continue
+            variables = code.with_name(re.sub("code", "vars", code.name, flags=re.IGNORECASE))
+            if variables.is_file():
                 return code, variables
     return None
 
