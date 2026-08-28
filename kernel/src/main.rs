@@ -37,7 +37,7 @@ mod pic;
 use brane_os_kernel::serial_println;
 use brane_os_kernel::{
     acpi, ai, apic, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process,
-    ramfs, sched, security, serial, shell, socket, syscall, tty, usermode, vfs,
+    ramfs, sched, security, serial, shell, smp, socket, syscall, tty, usermode, vfs,
 };
 
 // -----------------------------------------------------------------------
@@ -218,7 +218,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     match acpi::assign_bsp(activation.local_apic_id as u32) {
                         Ok(slot) => {
                             serial_println!(
-                                "[smp] BSP assigned to CPU slot {}; AP startup deferred",
+                                "[smp] BSP assigned to CPU slot {}; AP startup pending",
                                 slot
                             );
                         }
@@ -233,6 +233,53 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                         activation.timer_global_irq,
                         activation.keyboard_global_irq,
                     );
+                    if let Some(mut plan) = acpi::info().smp {
+                        if plan.enabled_cpu_count > 1 {
+                            match smp::prepare_ap_trampoline(
+                                &mut mapper,
+                                &mut frame_alloc,
+                                phys_offset,
+                            ) {
+                                Ok(trampoline) => match apic::local_apic_handle() {
+                                    Some(local_apic) => {
+                                        match smp::start_application_processors(
+                                            trampoline,
+                                            phys_offset,
+                                            local_apic,
+                                            &mut plan,
+                                        ) {
+                                            Ok(report) => {
+                                                acpi::set_smp_plan(plan);
+                                                serial_println!(
+                                                    "[smp] AP startup complete: attempted={}, online={}, failed={}",
+                                                    report.attempted,
+                                                    report.online,
+                                                    report.failed,
+                                                );
+                                            }
+                                            Err(error) => {
+                                                serial_println!(
+                                                    "[smp] AP startup unavailable ({:?}); APs remain offline.",
+                                                    error
+                                                );
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        serial_println!(
+                                            "[smp] AP startup skipped; Local APIC handle unavailable."
+                                        );
+                                    }
+                                },
+                                Err(error) => {
+                                    serial_println!(
+                                        "[smp] AP trampoline unavailable ({:?}); APs remain offline.",
+                                        error
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
                 Err(error) => {
                     serial_println!(

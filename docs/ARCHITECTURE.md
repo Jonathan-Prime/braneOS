@@ -288,9 +288,11 @@ repite después de ACPI S3.
 El módulo `kernel/src/smp.rs` convierte las entradas de procesador en un plan
 determinista de hasta 32 CPUs. Rechaza APIC ID duplicados o un conjunto sin CPUs
 habilitadas, registra el BSP identificado por el LAPIC y mantiene transiciones de
-estado (`Discovered`, `Starting`, `Online`, `Failed`) para los APs. El plan no
-envía todavía el INIT/SIPI: el arranque real espera al trampoline de memoria baja
-y a los stacks/paginación dedicados por CPU.
+estado (`Discovered`, `Starting`, `Online`, `Failed`) para los APs. En xAPIC,
+reserva una página baja, copia un trampoline real-mode que restaura CR0/CR3/CR4 y
+EFER, asigna un stack estático por AP y envía INIT + doble SIPI con timeout. Los
+APs confirmados quedan en un bucle seguro con interrupciones desactivadas hasta
+que exista GDT/TSS/IDT per-CPU y scheduler multicore.
 
 ---
 

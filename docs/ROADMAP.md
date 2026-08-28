@@ -231,7 +231,7 @@ físico y ejecución del gate final v1.0.
 |-----------|--------|-----------|-------------|
 | Parser MADT | ✅ | ALTA | ACPI |
 | Local APIC + I/O APIC | ✅ | ALTA | IDT, overrides MADT y routing IRQ0/IRQ1 |
-| Arranque de Application Processors | 🔲 | ALTA | Trampoline de memoria baja |
+| Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI xAPIC operativo; faltan per-CPU GDT/TSS |
 | Estado per-CPU | 🔄 | ALTA | Plan MADT validado; faltan GDT/TSS, stacks y MSRs por CPU |
 | Scheduler multicore | 🔲 | ALTA | Run queues y balanceo |
 | Sincronización y stress SMP | 🔲 | ALTA | Spinlocks, atomics y pruebas de carrera |
@@ -241,11 +241,12 @@ múltiples cores y supera stress tests sin deadlocks ni corrupción.
 
 **Progreso:** parser MADT integrado en el descubrimiento ACPI (incluye entradas
 x2APIC, sobrescritura de dirección LAPIC y `Interrupt Source Override`); ventanas
-MMIO del LAPIC/I/O APIC con atributos uncached; y hand-off controlado de IRQ0/IRQ1
-al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al PIC.
-El plan SMP valida APIC IDs/UIDs, asigna el BSP y modela estados de cada AP sin
-arrancar todavía ningún core secundario. Pendientes el trampoline, stacks,
-arranque de APs y scheduler multicore.
+MMIO del LAPIC/I/O APIC con atributos uncached; hand-off controlado de IRQ0/IRQ1
+al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al PIC;
+y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU).
+El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
+`Failed`. Pendientes GDT/TSS e IDT por CPU, aislamiento de stacks, scheduler
+multicore y validación de hardware físico.
 
 ---
 
@@ -294,7 +295,7 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 119 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Unit tests** | 120 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |

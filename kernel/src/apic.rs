@@ -19,6 +19,8 @@ pub const LOCAL_APIC_ID: u32 = 0x020;
 pub const LOCAL_APIC_VERSION: u32 = 0x030;
 pub const LOCAL_APIC_SIVR: u32 = 0x0F0;
 pub const LOCAL_APIC_EOI: u32 = 0x0B0;
+pub const LOCAL_APIC_ICR_LOW: u32 = 0x300;
+pub const LOCAL_APIC_ICR_HIGH: u32 = 0x310;
 pub const LOCAL_APIC_SIVR_ENABLE: u32 = 1 << 8;
 pub const LOCAL_APIC_SPURIOUS_VECTOR: u8 = 0xFF;
 pub const IO_APIC_REGSEL: u32 = 0x00;
@@ -106,6 +108,60 @@ impl LocalApic {
     /// The Local APIC MMIO page must be mapped.
     pub unsafe fn end_of_interrupt(self) {
         self.write(LOCAL_APIC_EOI, 0);
+    }
+
+    /// Send the architected INIT + double-SIPI sequence to one xAPIC target.
+    /// The bounded delivery-status waits prevent a wedged APIC from hanging
+    /// the bootstrap CPU indefinitely. The caller remains responsible for
+    /// checking the target's startup acknowledgement.
+    ///
+    /// # Safety
+    /// The Local APIC MMIO page must be mapped and the target must be a valid
+    /// xAPIC destination ID. The supplied SIPI vector must identify a mapped
+    /// 4 KiB real-mode trampoline below 1 MiB.
+    #[cfg(target_os = "none")]
+    pub unsafe fn send_init_sipi(self, destination: u8, vector: u8) -> bool {
+        const DELIVERY_STATUS: u32 = 1 << 12;
+        const LEVEL_ASSERT: u32 = 1 << 14;
+        const TRIGGER_LEVEL: u32 = 1 << 15;
+        const DELIVERY_INIT: u32 = 5 << 8;
+        const DELIVERY_STARTUP: u32 = 6 << 8;
+        const WAIT_SPINS: usize = 1_000_000;
+
+        let wait_delivery = || {
+            for _ in 0..WAIT_SPINS {
+                if self.read(LOCAL_APIC_ICR_LOW) & DELIVERY_STATUS == 0 {
+                    return true;
+                }
+                core::hint::spin_loop();
+            }
+            false
+        };
+        let write_ipi = |low: u32| {
+            self.write(LOCAL_APIC_ICR_HIGH, (destination as u32) << 24);
+            self.write(LOCAL_APIC_ICR_LOW, low);
+            wait_delivery()
+        };
+
+        if !write_ipi(DELIVERY_INIT | LEVEL_ASSERT | TRIGGER_LEVEL) {
+            return false;
+        }
+        for _ in 0..10_000 {
+            core::hint::spin_loop();
+        }
+        if !write_ipi(DELIVERY_INIT | TRIGGER_LEVEL) {
+            return false;
+        }
+        for _ in 0..10_000 {
+            core::hint::spin_loop();
+        }
+        if !write_ipi(DELIVERY_STARTUP | vector as u32) {
+            return false;
+        }
+        for _ in 0..10_000 {
+            core::hint::spin_loop();
+        }
+        write_ipi(DELIVERY_STARTUP | vector as u32)
     }
 }
 
@@ -454,6 +510,12 @@ pub fn end_of_interrupt() -> bool {
         APIC_ACTIVE.store(false, Ordering::Release);
     }
     false
+}
+
+/// Return a copy of the BSP's Local APIC handle after IRQ routing is active.
+#[cfg(target_os = "none")]
+pub fn local_apic_handle() -> Option<LocalApic> {
+    APIC_RUNTIME.lock().map(|runtime| runtime.local)
 }
 
 #[cfg(target_os = "none")]

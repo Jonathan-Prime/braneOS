@@ -62,7 +62,7 @@ test-image: build-release ## Build the shared release-kernel image used by QEMU 
 boot-test: test-image ## Run automated release-kernel boot test in QEMU (60 s timeout)
 	python3 tests/boot/test_boot.py --img $(TEST_IMAGE)
 
-smp-test: test-image ## Boot with four vCPUs and verify the SMP plan/BSP hand-off
+smp-test: test-image ## Boot with four vCPUs and verify AP INIT/SIPI startup
 	python3 tests/boot/test_boot.py --img $(TEST_IMAGE) --cpus 4
 
 acpi-test: test-image ## ACPI test: S3 suspend, QMP wake and post-resume shell

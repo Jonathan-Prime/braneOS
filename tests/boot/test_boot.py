@@ -180,6 +180,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
         required_strings.extend([
             f"[smp] CPU boot plan ready: {cpus} enabled CPU(s)",
             "[smp] BSP assigned to CPU slot 0",
+            f"[smp] AP startup complete: attempted={cpus - 1}, online={cpus - 1}, failed=0",
         ])
     firmware_vars: Path | None = None
     if media_type == "iso":

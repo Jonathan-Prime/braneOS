@@ -339,7 +339,7 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
                         match crate::smp::CpuBootPlan::from_madt(&info) {
                             Ok(plan) => {
                                 crate::serial_println!(
-                                    "[smp] CPU boot plan ready: {} enabled CPU(s), AP startup deferred",
+                                    "[smp] CPU boot plan ready: {} enabled CPU(s)",
                                     plan.enabled_cpu_count
                                 );
                                 smp_plan = Some(plan);
@@ -910,6 +910,11 @@ pub fn assign_bsp(apic_id: u32) -> Result<usize, crate::smp::CpuPlanError> {
         .as_mut()
         .ok_or(crate::smp::CpuPlanError::NoEnabledCpu)?
         .assign_bsp(apic_id)
+}
+
+/// Store AP lifecycle updates made by the SMP bootstrap sequence.
+pub fn set_smp_plan(plan: crate::smp::CpuBootPlan) {
+    ACPI_STATE.lock().smp = Some(plan);
 }
 
 pub fn shutdown() -> ! {

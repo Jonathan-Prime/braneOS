@@ -143,7 +143,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator e IPC) |
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
-| **SMP plan test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, MADT plan, BSP assignment y shell) |
+| **SMP/AP startup test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, MADT plan, BSP, INIT/SIPI online y shell) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **ACPI MADT/APIC/SMP** | **Activo** | `cargo test -p brane_os_kernel --lib madt` y `cargo test -p brane_os_kernel --lib smp` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing, BSP y fallback PIC) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |

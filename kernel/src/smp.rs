@@ -1,13 +1,26 @@
 //! SMP topology and Application Processor (AP) boot state.
 //!
-//! This module deliberately stops at a validated boot plan. Starting APs
-//! requires a low-memory trampoline, per-CPU stacks and page-table hand-off;
-//! those hardware writes are kept out of discovery so a malformed MADT can
-//! never leave half-started processors behind.
+//! Discovery builds a deterministic boot plan without touching APIC registers.
+//! The target-only startup path then allocates a low-memory trampoline, hands
+//! each AP a stack and the current page-table state, and records an explicit
+//! `Starting`/`Online`/`Failed` lifecycle so malformed topology cannot leave
+//! the BSP without a bounded recovery path.
 
 use crate::madt::MadtInfo;
 
+#[cfg(target_os = "none")]
+use crate::memory::frame_allocator::BitmapFrameAllocator;
+#[cfg(target_os = "none")]
+use x86_64::structures::paging::{OffsetPageTable, Page, PageTableFlags, PhysFrame, Translate};
+#[cfg(target_os = "none")]
+use x86_64::{PhysAddr, VirtAddr};
+
 pub const MAX_CPUS: usize = 32;
+#[cfg(target_os = "none")]
+const LEGACY_LIMIT: u64 = 0x10_0000;
+const PAGE_SIZE: u64 = 4096;
+#[cfg(target_os = "none")]
+const AP_START_TIMEOUT_SPINS: usize = 5_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -42,6 +55,42 @@ pub enum CpuPlanError {
     BspAlreadyAssigned,
     BspNotFound(u32),
     InvalidState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApStartupError {
+    TrampolineAddressInvalid,
+    TrampolineTooLarge,
+    TrampolineMappingConflict,
+    TrampolineContextOverflow,
+    PageTableAbove4G,
+    BspNotAssigned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApTrampoline {
+    pub physical_address: u64,
+    context_offset: u64,
+}
+
+impl ApTrampoline {
+    pub const fn vector(self) -> u8 {
+        (self.physical_address / PAGE_SIZE) as u8
+    }
+
+    #[cfg(target_os = "none")]
+    fn context_virtual(self, physical_memory_offset: u64) -> Option<u64> {
+        physical_memory_offset
+            .checked_add(self.physical_address)?
+            .checked_add(self.context_offset)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ApStartupReport {
+    pub attempted: usize,
+    pub online: usize,
+    pub failed: usize,
 }
 
 impl CpuBootPlan {
@@ -154,6 +203,284 @@ impl CpuBootPlan {
     }
 }
 
+#[cfg(target_os = "none")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ApContext {
+    cr0: u64,
+    cr3: u64,
+    cr4: u64,
+    efer: u64,
+    stack: u64,
+    entry: u64,
+    apic_id: u32,
+    _reserved: u32,
+    ready: u64,
+}
+
+#[cfg(target_os = "none")]
+#[repr(align(16))]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+struct ApStack([u8; 16 * 1024]);
+
+#[cfg(target_os = "none")]
+static mut AP_STACKS: [ApStack; MAX_CPUS] = [ApStack([0; 16 * 1024]); MAX_CPUS];
+
+#[cfg(target_os = "none")]
+static AP_START_ACK: [core::sync::atomic::AtomicU32; MAX_CPUS] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; MAX_CPUS];
+
+#[cfg(target_os = "none")]
+unsafe extern "C" {
+    static smp_ap_trampoline_start: u8;
+    static smp_ap_trampoline_end: u8;
+    static smp_ap_long_mode_target: u8;
+    static smp_ap_far_target: u8;
+    static smp_ap_gdt: u8;
+    static smp_ap_gdt_base: u8;
+    static smp_ap_context: u8;
+}
+
+#[cfg(target_os = "none")]
+pub fn prepare_ap_trampoline(
+    mapper: &mut OffsetPageTable<'static>,
+    frame_allocator: &mut BitmapFrameAllocator,
+    physical_memory_offset: u64,
+) -> Result<ApTrampoline, ApStartupError> {
+    let trampoline_phys = frame_allocator
+        .allocate_below(LEGACY_LIMIT)
+        .ok_or(ApStartupError::TrampolineAddressInvalid)?;
+    if !(PAGE_SIZE..LEGACY_LIMIT).contains(&trampoline_phys)
+        || trampoline_phys > LEGACY_LIMIT - PAGE_SIZE
+        || trampoline_phys & (PAGE_SIZE - 1) != 0
+    {
+        return Err(ApStartupError::TrampolineAddressInvalid);
+    }
+    let page = Page::containing_address(VirtAddr::new(trampoline_phys));
+    let frame = PhysFrame::containing_address(PhysAddr::new(trampoline_phys));
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    match mapper.translate_addr(page.start_address()) {
+        Some(mapped) if mapped == frame.start_address() => {}
+        Some(_) => return Err(ApStartupError::TrampolineMappingConflict),
+        None => crate::memory::paging::map_page(mapper, page, frame, flags, frame_allocator)
+            .map_err(|_| ApStartupError::TrampolineMappingConflict)?,
+    }
+
+    unsafe {
+        let source = core::ptr::addr_of!(smp_ap_trampoline_start);
+        let end = core::ptr::addr_of!(smp_ap_trampoline_end);
+        let length = end as usize - source as usize;
+        if length > PAGE_SIZE as usize {
+            return Err(ApStartupError::TrampolineTooLarge);
+        }
+        let destination = (physical_memory_offset + trampoline_phys) as *mut u8;
+        core::ptr::write_bytes(destination, 0, PAGE_SIZE as usize);
+        core::ptr::copy_nonoverlapping(source, destination, length);
+
+        let context_offset = symbol_offset(core::ptr::addr_of!(smp_ap_context));
+        let far_target_offset = symbol_offset(core::ptr::addr_of!(smp_ap_far_target));
+        let gdt_base_offset = symbol_offset(core::ptr::addr_of!(smp_ap_gdt_base));
+        let gdt_offset = symbol_offset(core::ptr::addr_of!(smp_ap_gdt));
+        if physical_memory_offset
+            .checked_add(trampoline_phys)
+            .and_then(|base| base.checked_add(context_offset as u64))
+            .is_none()
+        {
+            return Err(ApStartupError::TrampolineContextOverflow);
+        }
+        core::ptr::write_unaligned(
+            destination.add(far_target_offset) as *mut u32,
+            (trampoline_phys + symbol_offset(core::ptr::addr_of!(smp_ap_long_mode_target)) as u64)
+                as u32,
+        );
+        core::ptr::write_unaligned(
+            destination.add(gdt_base_offset) as *mut u32,
+            (trampoline_phys + gdt_offset as u64) as u32,
+        );
+
+        let cr0: u64;
+        let cr3: u64;
+        let cr4: u64;
+        core::arch::asm!("mov {}, cr0", out(reg) cr0, options(nomem, nostack, preserves_flags));
+        core::arch::asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags));
+        core::arch::asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack, preserves_flags));
+        if cr0 > u32::MAX as u64 || cr3 > u32::MAX as u64 || cr4 > u32::MAX as u64 {
+            return Err(ApStartupError::PageTableAbove4G);
+        }
+        let efer = x86_64::registers::model_specific::Msr::new(0xC000_0080).read();
+        let context = ApContext {
+            cr0,
+            cr3,
+            cr4,
+            efer,
+            stack: 0,
+            entry: ap_entry as *const () as u64,
+            apic_id: 0,
+            _reserved: 0,
+            ready: 0,
+        };
+        core::ptr::write_unaligned(destination.add(context_offset) as *mut ApContext, context);
+        Ok(ApTrampoline {
+            physical_address: trampoline_phys,
+            context_offset: context_offset as u64,
+        })
+    }
+}
+
+#[cfg(target_os = "none")]
+pub fn start_application_processors(
+    trampoline: ApTrampoline,
+    physical_memory_offset: u64,
+    local_apic: crate::apic::LocalApic,
+    plan: &mut CpuBootPlan,
+) -> Result<ApStartupReport, ApStartupError> {
+    if plan.bsp_index.is_none() {
+        return Err(ApStartupError::BspNotAssigned);
+    }
+    let Some(context_virtual) = trampoline.context_virtual(physical_memory_offset) else {
+        return Err(ApStartupError::TrampolineContextOverflow);
+    };
+    let vector = trampoline.vector();
+    if vector == 0 {
+        return Err(ApStartupError::TrampolineAddressInvalid);
+    }
+
+    let mut report = ApStartupReport::default();
+    for slot in 0..plan.cpu_count {
+        let Some(cpu) = plan.cpus[slot] else { continue };
+        if !cpu.enabled || Some(slot) == plan.bsp_index {
+            continue;
+        }
+        report.attempted += 1;
+        if cpu.apic_id > u8::MAX as u32 {
+            plan.cpus[slot].as_mut().unwrap().lifecycle = CpuLifecycle::Failed;
+            report.failed += 1;
+            continue;
+        }
+        if plan.mark_starting(cpu.apic_id).is_err() {
+            report.failed += 1;
+            continue;
+        }
+        let ack = &AP_START_ACK[slot];
+        ack.store(0, core::sync::atomic::Ordering::Release);
+        let mut context = unsafe { core::ptr::read_unaligned(context_virtual as *const ApContext) };
+        context.stack = unsafe {
+            core::ptr::addr_of!(AP_STACKS[slot]) as u64 + core::mem::size_of::<ApStack>() as u64
+        };
+        context.entry = ap_entry as *const () as u64;
+        context.apic_id = cpu.apic_id;
+        context._reserved = 0;
+        context.ready = ack as *const _ as u64;
+        unsafe {
+            core::ptr::write_unaligned(context_virtual as *mut ApContext, context);
+            if !local_apic.send_init_sipi(cpu.apic_id as u8, vector) {
+                let _ = plan.mark_failed(cpu.apic_id);
+                report.failed += 1;
+                continue;
+            }
+        }
+        let mut started = false;
+        for _ in 0..AP_START_TIMEOUT_SPINS {
+            if ack.load(core::sync::atomic::Ordering::Acquire) != 0 {
+                started = true;
+                break;
+            }
+            core::hint::spin_loop();
+        }
+        if started && plan.mark_online(cpu.apic_id).is_ok() {
+            report.online += 1;
+        } else {
+            let _ = plan.mark_failed(cpu.apic_id);
+            report.failed += 1;
+        }
+    }
+    Ok(report)
+}
+
+#[cfg(target_os = "none")]
+extern "C" fn ap_entry(_apic_id: u32) -> ! {
+    x86_64::instructions::interrupts::disable();
+    loop {
+        x86_64::instructions::hlt();
+    }
+}
+
+#[cfg(target_os = "none")]
+unsafe fn symbol_offset(symbol: *const u8) -> usize {
+    symbol as usize - core::ptr::addr_of!(smp_ap_trampoline_start) as usize
+}
+
+#[cfg(target_os = "none")]
+core::arch::global_asm!(
+    r#"
+    .pushsection .text.smp_ap, "ax", @progbits
+    .balign 16
+    .global smp_ap_trampoline_start
+    .global smp_ap_trampoline_end
+    .global smp_ap_long_mode_target
+    .global smp_ap_far_target
+    .global smp_ap_gdt
+    .global smp_ap_gdt_base
+    .global smp_ap_context
+
+    .code16
+smp_ap_trampoline_start:
+    cli
+    cld
+    mov ax, cs
+    mov ds, ax
+    lgdt cs:[SMP_AP_GDT_DESCRIPTOR_OFFSET]
+    mov eax, dword ptr cs:[SMP_AP_CONTEXT_OFFSET + 16]
+    mov cr4, eax
+    mov eax, dword ptr cs:[SMP_AP_CONTEXT_OFFSET + 8]
+    mov cr3, eax
+    mov ecx, 0xc0000080
+    mov eax, dword ptr cs:[SMP_AP_CONTEXT_OFFSET + 24]
+    mov edx, dword ptr cs:[SMP_AP_CONTEXT_OFFSET + 28]
+    wrmsr
+    mov eax, dword ptr cs:[SMP_AP_CONTEXT_OFFSET]
+    mov cr0, eax
+    .byte 0x66, 0xea
+smp_ap_far_target:
+    .long 0
+    .word 0x08
+
+    .code64
+smp_ap_long_mode_target:
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov rsp, qword ptr [rip + smp_ap_context + 32]
+    mov rax, qword ptr [rip + smp_ap_context + 56]
+    mov dword ptr [rax], 1
+    mov edi, dword ptr [rip + smp_ap_context + 48]
+    mov rax, qword ptr [rip + smp_ap_context + 40]
+    jmp rax
+
+    .balign 8
+smp_ap_gdt:
+    .quad 0x0000000000000000
+    .quad 0x00af9a000000ffff
+    .quad 0x00cf92000000ffff
+smp_ap_gdt_end:
+smp_ap_gdt_descriptor:
+    .word smp_ap_gdt_end - smp_ap_gdt - 1
+smp_ap_gdt_base:
+    .long 0
+
+    .balign 8
+smp_ap_context:
+    .zero 64
+smp_ap_trampoline_end:
+    .set SMP_AP_GDT_DESCRIPTOR_OFFSET, smp_ap_gdt_descriptor - smp_ap_trampoline_start
+    .set SMP_AP_CONTEXT_OFFSET, smp_ap_context - smp_ap_trampoline_start
+    .code64
+    .popsection
+"#
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,5 +543,14 @@ mod tests {
         assert_eq!(plan.mark_failed(7), Err(CpuPlanError::InvalidState));
         assert_eq!(plan.assign_bsp(2), Ok(0));
         assert_eq!(plan.assign_bsp(7), Err(CpuPlanError::BspAlreadyAssigned));
+    }
+
+    #[test]
+    fn encodes_sipi_vector_from_low_page() {
+        let trampoline = ApTrampoline {
+            physical_address: 0x9_000,
+            context_offset: 0,
+        };
+        assert_eq!(trampoline.vector(), 9);
     }
 }
