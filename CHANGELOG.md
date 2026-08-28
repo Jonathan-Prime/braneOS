@@ -16,6 +16,8 @@ All notable changes to Brane OS are documented here. The project follows
   including LAPIC EOI, S3 restoration and automatic 8259 PIC fallback.
 - Deterministic SMP boot plan with APIC ID validation, BSP assignment and
   lifecycle tracking for future AP startup.
+- Per-CPU scheduler runtime with dispatch/complete quanta, duplicate-run
+  protection, deterministic stealing accounting and an APIC dispatch probe.
 
 ## 0.1.0 — Foundation
 
@@ -30,7 +32,7 @@ All notable changes to Brane OS are documented here. The project follows
 
 ### Known limitations
 
-- Single-core execution; SMP multicore and APIC IRQ routing are planned for Phase 12
-  (APIC discovery and MMIO mapping are available incrementally).
+- APs now execute a bounded scheduler dispatch probe; isolated register/context
+  switching and sustained multicore task execution remain in Phase 12.
 - USB xHCI and persistent block storage are planned for Phase 13.
 - FAT32 support currently provides structural parsing rather than full reads.

@@ -182,6 +182,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
             "[smp] BSP assigned to CPU slot 0",
             f"[smp] AP startup complete: attempted={cpus - 1}, online={cpus - 1}, failed=0",
             f"[smp] AP interrupt check: attempted={cpus - 1}, responsive={cpus - 1}, failed=0",
+            "[sched] Multicore dispatch active:",
         ])
     firmware_vars: Path | None = None
     if media_type == "iso":

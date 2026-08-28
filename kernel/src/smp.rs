@@ -518,6 +518,13 @@ pub fn verify_application_processors(
 /// Record an interrupt probe from the AP currently executing the handler.
 #[cfg(target_os = "none")]
 pub fn acknowledge_interrupt_probe() {
+    // The same fixed IPI used by the bring-up health check also serves as a
+    // safe scheduler kick once the run queues have been configured. During
+    // early AP startup the coordinator still has one CPU, so this is a
+    // bounded no-op for APs; Phase 2 sends the probe again after enqueuing
+    // tasks and exercises the real dispatch path.
+    let _ = crate::sched::dispatch_current_cpu();
+    let _ = crate::sched::complete_current_cpu();
     if let Some(apic_id) = crate::apic::current_local_apic_id() {
         AP_INTERRUPT_ACK[apic_id as usize].store(1, core::sync::atomic::Ordering::Release);
     }

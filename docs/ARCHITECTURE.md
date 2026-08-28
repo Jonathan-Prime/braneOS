@@ -293,8 +293,10 @@ reserva una página baja, copia un trampoline real-mode que restaura CR0/CR3/CR4
 EFER, asigna un stack estático por AP y envía INIT + doble SIPI con timeout. Cada
 AP confirmado carga su GDT/TSS/IST, el IDT compartido y sus MSR de syscall antes
 de publicar el ACK; después queda en un bucle seguro con interrupciones
-habilitadas, pero sin tareas asignadas, hasta que exista despacho de
-interrupciones y scheduler multicore.
+habilitadas. Una IPI dirigida posterior a la creación de las colas ejecuta un
+quantum acotado en el AP, actualiza su estado runtime (tarea actual,
+despachos, robos e idle) y devuelve la tarea a su cola; el cambio de contexto
+de registros por AP queda reservado para la siguiente iteración.
 
 ---
 
@@ -303,8 +305,11 @@ interrupciones y scheduler multicore.
 Planificador de tareas con soporte para prioridades y quantum configurable.
 `Scheduler` conserva el cambio de contexto cooperativo del BSP; `MultiCoreScheduler`
 mantiene run queues fijas por CPU, asigna nuevas tareas a la cola menos cargada y
-permite que un CPU ocioso robe una tarea de su vecino más cargado. La integración
-del pick/steal con el contexto de cada AP queda pendiente de la siguiente fase.
+permite que un CPU ocioso robe una tarea de su vecino más cargado. Cada CPU
+mantiene un estado runtime y el dispatcher retira la tarea mientras corre para
+evitar dobles ejecuciones; `complete` la devuelve a la cola al terminar el
+quantum. La integración del cambio de contexto de registros por AP queda
+pendiente de la siguiente iteración.
 
 ```rust
 pub trait Scheduler {

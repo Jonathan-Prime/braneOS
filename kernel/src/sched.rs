@@ -43,6 +43,41 @@ pub enum RunQueueError {
     Duplicate,
 }
 
+/// Result of asking one logical CPU to select work from its run queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchResult {
+    /// The CPU selected a task that was already assigned to its queue.
+    Dispatched(TaskId),
+    /// The CPU had no local work and successfully stole a task.
+    Stole(TaskId),
+    /// No runnable task was available for this CPU.
+    Idle,
+    /// The CPU is outside the configured topology.
+    InvalidCpu,
+    /// The CPU already owns a running task and must yield it first.
+    Busy(TaskId),
+}
+
+/// Runtime accounting for one logical CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuRuntimeSnapshot {
+    pub current: Option<TaskId>,
+    pub dispatches: u64,
+    pub steals: u64,
+    pub idle_dispatches: u64,
+}
+
+impl CpuRuntimeSnapshot {
+    const fn new() -> Self {
+        Self {
+            current: None,
+            dispatches: 0,
+            steals: 0,
+            idle_dispatches: 0,
+        }
+    }
+}
+
 /// Fixed-size FIFO/round-robin queue owned by one logical CPU.
 #[derive(Clone, Copy)]
 pub struct CpuRunQueue {
@@ -110,6 +145,14 @@ impl CpuRunQueue {
         self.cursor = (self.cursor + 1) % self.len;
         Some(task_id)
     }
+
+    /// Remove and return the next task. A running task is therefore never
+    /// available for another CPU to steal until it yields back to its queue.
+    fn pop_next(&mut self) -> Option<TaskId> {
+        let task_id = self.next()?;
+        self.remove(task_id);
+        Some(task_id)
+    }
 }
 
 impl Default for CpuRunQueue {
@@ -126,6 +169,7 @@ impl Default for CpuRunQueue {
 /// interrupt path is connected to it.
 pub struct MultiCoreScheduler {
     queues: [CpuRunQueue; crate::smp::MAX_CPUS],
+    runtime: [CpuRuntimeSnapshot; crate::smp::MAX_CPUS],
     cpu_count: usize,
     next_assignment: usize,
 }
@@ -134,6 +178,7 @@ impl MultiCoreScheduler {
     pub const fn new() -> Self {
         Self {
             queues: [const { CpuRunQueue::new() }; crate::smp::MAX_CPUS],
+            runtime: [const { CpuRuntimeSnapshot::new() }; crate::smp::MAX_CPUS],
             cpu_count: 1,
             next_assignment: 0,
         }
@@ -145,6 +190,7 @@ impl MultiCoreScheduler {
     pub fn configure(&mut self, cpu_count: usize) -> usize {
         self.cpu_count = cpu_count.clamp(1, crate::smp::MAX_CPUS);
         self.queues = [const { CpuRunQueue::new() }; crate::smp::MAX_CPUS];
+        self.runtime = [const { CpuRuntimeSnapshot::new() }; crate::smp::MAX_CPUS];
         self.next_assignment = 0;
         self.cpu_count
     }
@@ -161,6 +207,9 @@ impl MultiCoreScheduler {
         if self.queues[..self.cpu_count]
             .iter()
             .any(|queue| queue.contains(task_id))
+            || self.runtime[..self.cpu_count]
+                .iter()
+                .any(|runtime| runtime.current == Some(task_id))
         {
             return Err(RunQueueError::Duplicate);
         }
@@ -221,6 +270,56 @@ impl MultiCoreScheduler {
         Ok(Some(task_id))
     }
 
+    /// Dispatch one task on a CPU. The selected task is removed from its
+    /// queue while running, preventing a concurrent steal of the same task.
+    pub fn dispatch(&mut self, cpu: usize) -> DispatchResult {
+        if cpu >= self.cpu_count {
+            return DispatchResult::InvalidCpu;
+        }
+        if let Some(task_id) = self.runtime[cpu].current {
+            return DispatchResult::Busy(task_id);
+        }
+
+        if let Some(task_id) = self.queues[cpu].pop_next() {
+            self.runtime[cpu].current = Some(task_id);
+            self.runtime[cpu].dispatches += 1;
+            return DispatchResult::Dispatched(task_id);
+        }
+
+        if let Some(task_id) = self.steal(cpu).ok().flatten() {
+            // `steal` moved the task onto the thief's queue; remove it again
+            // so the runtime state is the single source of ownership.
+            let selected = self.queues[cpu].pop_next().unwrap_or(task_id);
+            self.runtime[cpu].current = Some(selected);
+            self.runtime[cpu].dispatches += 1;
+            self.runtime[cpu].steals += 1;
+            return DispatchResult::Stole(selected);
+        }
+
+        self.runtime[cpu].idle_dispatches += 1;
+        DispatchResult::Idle
+    }
+
+    /// Return the currently running task to its owning CPU queue.
+    pub fn complete(&mut self, cpu: usize) -> Result<Option<TaskId>, RunQueueError> {
+        if cpu >= self.cpu_count {
+            return Err(RunQueueError::InvalidCpu);
+        }
+        let Some(task_id) = self.runtime[cpu].current.take() else {
+            return Ok(None);
+        };
+        self.queues[cpu].enqueue(task_id)?;
+        Ok(Some(task_id))
+    }
+
+    pub fn runtime(&self, cpu: usize) -> Option<CpuRuntimeSnapshot> {
+        (cpu < self.cpu_count).then(|| self.runtime[cpu])
+    }
+
+    pub fn runtime_snapshots(&self) -> [CpuRuntimeSnapshot; crate::smp::MAX_CPUS] {
+        self.runtime
+    }
+
     pub fn queue_load(&self, cpu: usize) -> Option<usize> {
         (cpu < self.cpu_count).then(|| self.queues[cpu].len())
     }
@@ -265,6 +364,30 @@ pub fn next_task_for_cpu(cpu: usize) -> Option<TaskId> {
 /// Select the next task for the current processor using the APIC-to-slot map.
 pub fn next_task_for_current_cpu() -> Option<TaskId> {
     next_task_for_cpu(crate::smp::current_cpu_index())
+}
+
+/// Dispatch work for a logical CPU and update per-CPU runtime accounting.
+pub fn dispatch_for_cpu(cpu: usize) -> DispatchResult {
+    MULTICORE_SCHEDULER.lock().dispatch(cpu)
+}
+
+/// Complete the current dispatch and put the task back on its CPU queue.
+pub fn complete_for_cpu(cpu: usize) -> Option<TaskId> {
+    MULTICORE_SCHEDULER.lock().complete(cpu).ok().flatten()
+}
+
+/// Dispatch one quantum for the processor executing this code.
+pub fn dispatch_current_cpu() -> DispatchResult {
+    dispatch_for_cpu(crate::smp::current_cpu_index())
+}
+
+/// Complete the current quantum on the processor executing this code.
+pub fn complete_current_cpu() -> Option<TaskId> {
+    complete_for_cpu(crate::smp::current_cpu_index())
+}
+
+pub fn multicore_runtime_snapshots() -> [CpuRuntimeSnapshot; crate::smp::MAX_CPUS] {
+    MULTICORE_SCHEDULER.lock().runtime_snapshots()
 }
 
 /// Task priority levels.
@@ -732,5 +855,37 @@ mod multicore_tests {
         assert_eq!(scheduler.dequeue(2, 1), Ok(true));
         assert_eq!(scheduler.dequeue(2, 99), Ok(false));
         assert_eq!(scheduler.pick_next(3), Err(RunQueueError::InvalidCpu));
+    }
+
+    #[test]
+    fn dispatch_removes_running_task_until_completion() {
+        let mut scheduler = MultiCoreScheduler::new();
+        scheduler.configure(2);
+        scheduler.enqueue(1).unwrap();
+
+        assert_eq!(scheduler.dispatch(0), DispatchResult::Dispatched(1));
+        assert_eq!(scheduler.dispatch(0), DispatchResult::Busy(1));
+        // A running task is not stealable by another CPU.
+        assert_eq!(scheduler.dispatch(1), DispatchResult::Idle);
+        assert_eq!(scheduler.complete(0), Ok(Some(1)));
+        assert_eq!(scheduler.runtime(0).unwrap().current, None);
+        assert_eq!(scheduler.queue_load(0), Some(1));
+    }
+
+    #[test]
+    fn idle_cpu_dispatches_a_stolen_task_and_accounts_it() {
+        let mut scheduler = MultiCoreScheduler::new();
+        scheduler.configure(2);
+        // Force both tasks onto CPU zero so CPU one must steal.
+        scheduler.queues[0].enqueue(1).unwrap();
+        scheduler.queues[0].enqueue(2).unwrap();
+
+        assert_eq!(scheduler.dispatch(1), DispatchResult::Stole(1));
+        let runtime = scheduler.runtime(1).unwrap();
+        assert_eq!(runtime.current, Some(1));
+        assert_eq!(runtime.dispatches, 1);
+        assert_eq!(runtime.steals, 1);
+        assert_eq!(scheduler.complete(1), Ok(Some(1)));
+        assert_eq!(scheduler.queue_load(1), Some(1));
     }
 }

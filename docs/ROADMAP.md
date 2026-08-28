@@ -231,9 +231,9 @@ físico y ejecución del gate final v1.0.
 |-----------|--------|-----------|-------------|
 | Parser MADT | ✅ | ALTA | ACPI |
 | Local APIC + I/O APIC | ✅ | ALTA | IDT, overrides MADT y routing IRQ0/IRQ1 |
-| Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI + GDT/TSS/IDT/MSR xAPIC; falta dispatcher multicore |
-| Estado per-CPU | 🔄 | ALTA | GDT/TSS/IST, stacks y MSRs por CPU; falta estado runtime del scheduler |
-| Scheduler multicore | 🔄 | ALTA | Run queues, menor carga y steal implementados; falta dispatch |
+| Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI + GDT/TSS/IDT/MSR xAPIC; dispatcher IPI acotado integrado |
+| Estado per-CPU | 🔄 | ALTA | GDT/TSS/IST, stacks, MSRs y contadores runtime por CPU; falta contexto aislado |
+| Scheduler multicore | 🔄 | ALTA | Run queues, menor carga, steal y dispatch/complete integrados; falta cambio de contexto |
 | Sincronización y stress SMP | 🔲 | ALTA | Spinlocks, atomics y pruebas de carrera |
 
 **Criterio de salida:** QEMU arranca con al menos 4 vCPU, ejecuta tareas en
@@ -246,9 +246,11 @@ al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al P
 y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU),
 incluyendo GDT/TSS/IST, IDT y MSRs de syscall por AP antes del ACK.
 El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
-`Failed`. Las run queues por CPU ya distribuyen y roban tareas de forma
-determinista; pendientes dispatch de tareas por interrupción, contexto por AP,
-sincronización y validación de hardware físico.
+`Failed`. Las run queues por CPU distribuyen y roban tareas de forma
+determinista. Una IPI dirigida a cada AP ejecuta y contabiliza un quantum de
+dispatch/complete, dejando evidencia `Multicore dispatch active`; quedan el
+cambio de contexto aislado por AP, la sincronización y la validación de
+hardware físico.
 
 ---
 
@@ -297,7 +299,7 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 123 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Unit tests** | 125 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |
