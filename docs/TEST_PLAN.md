@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §18.  
 > Estado: **Activo**.  
-> Última actualización: **2026-08-27**
+> Última actualización: **2026-08-28**
 
 ---
 
@@ -144,7 +144,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
-| **ACPI MADT parser** | **Activo** | `cargo test -p brane_os_kernel --lib madt` (firma, checksum, límites, xAPIC/x2APIC, override LAPIC e I/O APIC) |
+| **ACPI MADT/APIC** | **Activo** | `cargo test -p brane_os_kernel --lib madt` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing y fallback PIC) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
 | **Integration tests (QEMU)** | **Activo** | `make integration-test` (syscall/service + capability broker) |
 | **E2E tests (QEMU)** | **Activo** | `make e2e-test` (disponibilidad de brsh + secuencia completa de boot) |

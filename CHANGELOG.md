@@ -12,6 +12,8 @@ All notable changes to Brane OS are documented here. The project follows
 - Tag-driven GitHub release workflow with SHA-256 verification.
 - MADT support for x2APIC CPUs and Local APIC address overrides.
 - Safe Local APIC/I/O APIC MMIO windows with initial boot-time page mapping.
+- MADT ISA interrupt overrides and controlled IRQ0/IRQ1 hand-off to the APIC,
+  including LAPIC EOI, S3 restoration and automatic 8259 PIC fallback.
 
 ## 0.1.0 — Foundation
 

@@ -276,12 +276,14 @@ pub trait InterruptController {
 | 0x80 | Syscall | Interrupción de software para syscalls |
 
 **Estado de implementación SMP/APIC (Fase 12):** el descubrimiento ACPI/MADT
-acepta procesadores xAPIC y x2APIC, incluyendo la sobrescritura de la dirección
-del LAPIC. Durante el arranque bare-metal se mapean las ventanas MMIO del LAPIC
-y del primer I/O APIC con permisos `PRESENT | WRITABLE | NO_CACHE`. El acceso
-volátil a registros y la codificación de entradas de redirección están aislados
-en `kernel/src/apic.rs`; la activación del LAPIC y el enrutamiento de IRQ quedan
-para la siguiente iteración de SMP.
+acepta procesadores xAPIC y x2APIC, sobrescritura de la dirección del LAPIC e
+`Interrupt Source Override`. Durante el arranque bare-metal se mapean las
+ventanas MMIO del LAPIC y del primer I/O APIC con permisos
+`PRESENT | WRITABLE | NO_CACHE`. Si la CPU está en modo xAPIC, el kernel habilita
+el LAPIC, programa IRQ0/IRQ1 en el I/O APIC respetando polaridad/disparo y cambia
+el EOI de la IDT al LAPIC dentro de una transición con interrupciones desactivadas.
+Si la validación falla, el PIC 8259 permanece como fallback; la misma secuencia se
+repite después de ACPI S3.
 
 ---
 

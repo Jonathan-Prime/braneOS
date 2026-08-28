@@ -1,6 +1,6 @@
 # RUNBOOK.md - Build, CI y ejecucion local
 
-> Estado: operativo para desarrollo local. Última actualización: 2026-08-27.
+> Estado: operativo para desarrollo local. Última actualización: 2026-08-28.
 > Este documento describe el flujo
 > actual del repositorio, no el release final instalable.
 
@@ -14,7 +14,7 @@ BIOS/UEFI con el crate `bootloader` y arrancar en QEMU mediante el runner Rust.
 El arranque actual inicializa:
 
 - serial y framebuffer,
-- GDT, IDT y PIC,
+- GDT, IDT y APIC (con fallback PIC),
 - memoria, paging, heap y ACPI,
 - scheduler cooperativo,
 - syscalls e IPC,
@@ -22,6 +22,11 @@ El arranque actual inicializa:
 - Brane Protocol, IA observadora, VFS, RamFS, TTY, shell, red, sockets y DNS.
 
 El sistema entra en `brsh` y queda esperando entrada por TTY.
+
+En QEMU y hardware con xAPIC, el arranque muestra `IRQ routing active` y las
+IRQ0/IRQ1 quedan en el I/O APIC; si ACPI, MMIO o el modo APIC no son utilizables,
+se conserva automáticamente el 8259 PIC. La prueba de reanudación S3 repite la
+misma selección y permite verificarla con el comando `acpi` (`mode=LAPIC/IOAPIC`).
 
 ---
 

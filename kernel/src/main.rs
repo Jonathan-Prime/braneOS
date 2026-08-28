@@ -172,9 +172,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // Map APIC controller windows discovered through MADT. Register access is
-    // intentionally deferred until IRQ routing is enabled in the SMP phase;
-    // this step only guarantees that the MMIO pages are available.
+    // deferred until both windows are available; only then is the IRQ hand-off
+    // attempted. Any discovery, mapping or hardware validation failure leaves
+    // the already-working PIC path in place.
     if let Some(topology) = acpi::info().apic {
+        let mut local_mapped = false;
+        let mut io_mapped = false;
         let local_result = apic::map_mmio_page(
             &mut mapper,
             &mut frame_alloc,
@@ -183,6 +186,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         );
         match local_result {
             Ok(()) => {
+                local_mapped = true;
                 serial_println!(
                     "[apic] Local APIC MMIO mapped at phys=0x{:X} virt=0x{:X}",
                     topology.local_apic_address,
@@ -196,6 +200,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         if let Some(io_apic_address) = topology.first_io_apic_address {
             match apic::map_mmio_page(&mut mapper, &mut frame_alloc, phys_offset, io_apic_address) {
                 Ok(()) => {
+                    io_mapped = true;
                     serial_println!(
                         "[apic] I/O APIC MMIO mapped at phys=0x{:X} virt=0x{:X}",
                         io_apic_address,
@@ -206,6 +211,27 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                     serial_println!("[apic] I/O APIC mapping unavailable: {}", error);
                 }
             }
+        }
+        if local_mapped && io_mapped {
+            match apic::activate_legacy_irqs(topology, phys_offset, pic::mask_all) {
+                Ok(activation) => {
+                    serial_println!(
+                        "[apic] IRQ routing active: LAPIC ID={}, IOAPIC redirections={}, timer GSI={}, keyboard GSI={}",
+                        activation.local_apic_id,
+                        activation.io_apic_redirection_count,
+                        activation.timer_global_irq,
+                        activation.keyboard_global_irq,
+                    );
+                }
+                Err(error) => {
+                    serial_println!(
+                        "[apic] IRQ hand-off skipped ({:?}); retaining 8259 PIC fallback.",
+                        error
+                    );
+                }
+            }
+        } else {
+            serial_println!("[apic] IRQ hand-off skipped; required MMIO windows are unavailable.");
         }
     }
 
@@ -457,7 +483,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("  Brane OS v0.1 — Boot Complete");
     serial_println!("===========================================");
     serial_println!();
-    serial_println!("  Phase 1: GDT, IDT, PIC          ✓");
+    serial_println!("  Phase 1: GDT, IDT, APIC/PIC       ✓");
     serial_println!("  Phase 2: Memory, Scheduler       ✓");
     serial_println!("  Phase 3: Syscalls, IPC           ✓");
     serial_println!("  Phase 4: Caps, Audit, Modules    ✓");
@@ -557,12 +583,41 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
 /// Restore platform state that firmware and devices may reset during ACPI S3.
 fn resume_platform() {
+    x86_64::instructions::interrupts::disable();
     serial::init();
     gdt::init();
     idt::init();
     usermode::init_syscall_msrs();
     let keyboard_ready = keyboard::init();
-    pic::init();
+    // Firmware may reset both controllers during S3. Re-enter through a
+    // masked PIC state, then repeat the same APIC hand-off used at boot.
+    apic::deactivate();
+    pic::init_masked();
+    let mut apic_restored = false;
+    if let Some(topology) = acpi::info().apic {
+        match apic::activate_legacy_irqs(topology, acpi::physical_memory_offset(), pic::mask_all) {
+            Ok(activation) => {
+                apic_restored = true;
+                serial_println!(
+                    "[acpi] APIC IRQ routing restored: LAPIC ID={}, timer GSI={}, keyboard GSI={}",
+                    activation.local_apic_id,
+                    activation.timer_global_irq,
+                    activation.keyboard_global_irq,
+                );
+            }
+            Err(error) => {
+                serial_println!(
+                    "[acpi] APIC restore skipped ({:?}); retaining 8259 PIC fallback.",
+                    error
+                );
+            }
+        }
+    }
+    if apic_restored {
+        x86_64::instructions::interrupts::enable();
+    } else {
+        pic::init();
+    }
     let network_ready = net::init();
     serial_println!(
         "[acpi] Resume complete; interrupts restored, keyboard={}, network={}",

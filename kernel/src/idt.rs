@@ -4,7 +4,7 @@
 //
 // Configures the IDT with handlers for:
 //   - CPU exceptions (breakpoint, double fault, page fault, etc.)
-//   - Hardware interrupts via the 8259 PIC (timer, keyboard)
+//   - Hardware interrupts via the APIC (with a 8259 PIC fallback)
 //
 // Spec reference: ARCHITECTURE.md §5.2.2 (Interrupt Manager)
 // ============================================================
@@ -45,6 +45,8 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     // --- Hardware Interrupts (PIC) ---
     idt[pic::InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
     idt[pic::InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
+    idt[brane_os_kernel::apic::LOCAL_APIC_SPURIOUS_VECTOR]
+        .set_handler_fn(spurious_interrupt_handler);
 
     idt
 });
@@ -134,11 +136,7 @@ extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFr
     // Future: tick the scheduler here
     // sched::tick();
 
-    unsafe {
-        pic::PICS
-            .lock()
-            .notify_end_of_interrupt(pic::InterruptIndex::Timer.as_u8());
-    }
+    acknowledge_interrupt(pic::InterruptIndex::Timer.as_u8());
 }
 
 /// Keyboard interrupt — decodes PS/2 scancodes and prints to serial.
@@ -150,9 +148,17 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 
     crate::keyboard::handle_scancode(scancode);
 
+    acknowledge_interrupt(pic::InterruptIndex::Keyboard.as_u8());
+}
+
+fn acknowledge_interrupt(vector: u8) {
+    if brane_os_kernel::apic::end_of_interrupt() {
+        return;
+    }
     unsafe {
-        pic::PICS
-            .lock()
-            .notify_end_of_interrupt(pic::InterruptIndex::Keyboard.as_u8());
+        pic::PICS.lock().notify_end_of_interrupt(vector);
     }
 }
+
+/// Spurious APIC interrupts are intentionally not acknowledged with an EOI.
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {}

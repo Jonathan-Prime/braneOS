@@ -875,6 +875,12 @@ pub fn info() -> AcpiInfo {
     }
 }
 
+/// Physical-to-virtual direct-map offset captured during ACPI discovery.
+/// APIC resume uses the same offset after firmware returns from S3.
+pub fn physical_memory_offset() -> u64 {
+    ACPI_STATE.lock().phys_mem_offset.unwrap_or(0)
+}
+
 pub fn shutdown() -> ! {
     let state = ACPI_STATE.lock();
     if let (Some(pm1a), Some(sleep)) = (state.pm1a_cnt_blk, state.sleep_types[5]) {

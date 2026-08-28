@@ -6,6 +6,10 @@
 //! by host-side tests; only the bare-metal bring-up maps the MMIO pages.
 
 #[cfg(target_os = "none")]
+use core::sync::atomic::{AtomicBool, Ordering};
+#[cfg(target_os = "none")]
+use spin::Mutex;
+#[cfg(target_os = "none")]
 use x86_64::structures::paging::{Mapper, Page, PageTableFlags, PhysFrame, Size2MiB, Translate};
 #[cfg(target_os = "none")]
 use x86_64::{PhysAddr, VirtAddr};
@@ -16,12 +20,18 @@ pub const LOCAL_APIC_VERSION: u32 = 0x030;
 pub const LOCAL_APIC_SIVR: u32 = 0x0F0;
 pub const LOCAL_APIC_EOI: u32 = 0x0B0;
 pub const LOCAL_APIC_SIVR_ENABLE: u32 = 1 << 8;
+pub const LOCAL_APIC_SPURIOUS_VECTOR: u8 = 0xFF;
 pub const IO_APIC_REGSEL: u32 = 0x00;
 pub const IO_APIC_WINDOW: u32 = 0x10;
 pub const IO_APIC_ID: u32 = 0x00;
 pub const IO_APIC_VERSION: u32 = 0x01;
 pub const IO_APIC_ARBITRATION: u32 = 0x02;
 pub const IO_APIC_REDIRECTION_BASE: u32 = 0x10;
+
+#[cfg(target_os = "none")]
+const IA32_APIC_BASE_LAPIC_ENABLE: u64 = 1 << 11;
+#[cfg(target_os = "none")]
+const IA32_APIC_BASE_X2APIC_ENABLE: u64 = 1 << 10;
 
 /// Memory-mapped Local APIC window. The caller must provide the physical
 /// base reported by MADT and the kernel's direct-map offset.
@@ -214,6 +224,9 @@ pub struct ApicTopology {
     pub enabled_cpu_count: usize,
     pub io_apic_count: usize,
     pub first_io_apic_address: Option<u64>,
+    pub first_io_apic_global_irq_base: Option<u32>,
+    pub timer_route: Option<crate::madt::IsaIrqRoute>,
+    pub keyboard_route: Option<crate::madt::IsaIrqRoute>,
 }
 
 impl ApicTopology {
@@ -226,6 +239,12 @@ impl ApicTopology {
                 .then(|| info.io_apics[0])
                 .flatten()
                 .map(|entry| entry.address as u64),
+            first_io_apic_global_irq_base: (info.io_apic_count > 0)
+                .then(|| info.io_apics[0])
+                .flatten()
+                .map(|entry| entry.global_irq_base),
+            timer_route: info.isa_irq_route(0).ok(),
+            keyboard_route: info.isa_irq_route(1).ok(),
         }
     }
 }
@@ -293,6 +312,8 @@ pub fn map_mmio_page(
 pub struct RedirectionEntry {
     pub vector: u8,
     pub delivery_mode: u8,
+    pub active_low: bool,
+    pub level_triggered: bool,
     pub masked: bool,
     pub destination: u8,
 }
@@ -302,6 +323,8 @@ impl RedirectionEntry {
         Self {
             vector,
             delivery_mode: 0,
+            active_low: false,
+            level_triggered: false,
             masked: true,
             destination,
         }
@@ -317,10 +340,22 @@ impl RedirectionEntry {
         self
     }
 
+    pub const fn with_polarity(mut self, active_low: bool) -> Self {
+        self.active_low = active_low;
+        self
+    }
+
+    pub const fn with_trigger_mode(mut self, level_triggered: bool) -> Self {
+        self.level_triggered = level_triggered;
+        self
+    }
+
     pub const fn from_raw(raw: u64) -> Self {
         Self {
             vector: raw as u8,
             delivery_mode: ((raw >> 8) & 7) as u8,
+            active_low: raw & (1 << 13) != 0,
+            level_triggered: raw & (1 << 15) != 0,
             masked: raw & (1 << 16) != 0,
             destination: (raw >> 56) as u8,
         }
@@ -328,6 +363,12 @@ impl RedirectionEntry {
 
     pub const fn to_raw(self) -> u64 {
         let mut value = self.vector as u64 | ((self.delivery_mode as u64 & 7) << 8);
+        if self.active_low {
+            value |= 1 << 13;
+        }
+        if self.level_triggered {
+            value |= 1 << 15;
+        }
         if self.masked {
             value |= 1 << 16;
         }
@@ -337,6 +378,226 @@ impl RedirectionEntry {
 
 pub const fn is_valid_mmio_base(address: u64) -> bool {
     address != 0 && address & 0xFFF == 0
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivationError {
+    MissingIoApic,
+    MissingIrqRoute,
+    InvalidIoApicBase,
+    GsiOutsideIoApic,
+    RedirectionIndexUnavailable,
+    LocalApicUnavailable,
+    X2ApicMode,
+    AlreadyActive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApicActivation {
+    pub local_apic_id: u8,
+    pub io_apic_redirection_count: u16,
+    pub timer_global_irq: u32,
+    pub keyboard_global_irq: u32,
+}
+
+#[cfg(target_os = "none")]
+#[derive(Debug, Clone, Copy)]
+struct ApicRuntime {
+    local: LocalApic,
+    io: IoApic,
+    timer_index: u8,
+    keyboard_index: u8,
+    timer_entry: RedirectionEntry,
+    keyboard_entry: RedirectionEntry,
+}
+
+#[cfg(target_os = "none")]
+static APIC_ACTIVE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "none")]
+static APIC_RUNTIME: Mutex<Option<ApicRuntime>> = Mutex::new(None);
+
+/// Whether hardware IRQ acknowledgements should be sent to the Local APIC.
+pub fn is_active() -> bool {
+    #[cfg(target_os = "none")]
+    {
+        APIC_ACTIVE.load(Ordering::Acquire)
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        false
+    }
+}
+
+/// Stop APIC acknowledgements while the legacy PIC is being restored.
+#[cfg(target_os = "none")]
+pub fn deactivate() {
+    APIC_ACTIVE.store(false, Ordering::Release);
+}
+
+#[cfg(not(target_os = "none"))]
+pub fn deactivate() {}
+
+/// Acknowledge an interrupt through the active Local APIC.
+///
+/// Returns `false` when APIC routing is not active, allowing the caller to
+/// acknowledge the same vector through the legacy PIC.
+pub fn end_of_interrupt() -> bool {
+    #[cfg(target_os = "none")]
+    {
+        if !APIC_ACTIVE.load(Ordering::Acquire) {
+            return false;
+        }
+        if let Some(runtime) = *APIC_RUNTIME.lock() {
+            unsafe { runtime.local.end_of_interrupt() };
+            return true;
+        }
+        APIC_ACTIVE.store(false, Ordering::Release);
+    }
+    false
+}
+
+#[cfg(target_os = "none")]
+fn redirection_index(
+    global_irq: u32,
+    global_irq_base: u32,
+    redirection_count: u16,
+) -> Result<u8, ActivationError> {
+    let index = global_irq
+        .checked_sub(global_irq_base)
+        .ok_or(ActivationError::GsiOutsideIoApic)?;
+    if index >= redirection_count as u32 || index > 119 {
+        return Err(ActivationError::RedirectionIndexUnavailable);
+    }
+    Ok(index as u8)
+}
+
+/// Enable the Local APIC and atomically move ISA timer/keyboard IRQs from the
+/// 8259 PIC to the first MADT I/O APIC. The supplied closure masks the PIC at
+/// the point where all APIC entries are still masked and CPU interrupts are
+/// disabled, so a failed validation leaves the legacy path untouched.
+#[cfg(target_os = "none")]
+pub fn activate_legacy_irqs<F>(
+    topology: ApicTopology,
+    physical_memory_offset: u64,
+    mask_pic: F,
+) -> Result<ApicActivation, ActivationError>
+where
+    F: FnOnce(),
+{
+    let mut result = Err(ActivationError::LocalApicUnavailable);
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        if APIC_ACTIVE.load(Ordering::Acquire) {
+            result = Err(ActivationError::AlreadyActive);
+            return;
+        }
+        let Some(io_apic_address) = topology.first_io_apic_address else {
+            result = Err(ActivationError::MissingIoApic);
+            return;
+        };
+        let Some(global_irq_base) = topology.first_io_apic_global_irq_base else {
+            result = Err(ActivationError::InvalidIoApicBase);
+            return;
+        };
+        let Some(timer_route) = topology.timer_route else {
+            result = Err(ActivationError::MissingIrqRoute);
+            return;
+        };
+        let Some(keyboard_route) = topology.keyboard_route else {
+            result = Err(ActivationError::MissingIrqRoute);
+            return;
+        };
+        let Some(local) = LocalApic::new(topology.local_apic_address, physical_memory_offset)
+        else {
+            result = Err(ActivationError::LocalApicUnavailable);
+            return;
+        };
+        let Some(io) = IoApic::new(io_apic_address, physical_memory_offset) else {
+            result = Err(ActivationError::InvalidIoApicBase);
+            return;
+        };
+
+        let (current_frame, current_raw) = x86_64::registers::model_specific::ApicBase::read_raw();
+        if current_raw & IA32_APIC_BASE_X2APIC_ENABLE != 0 {
+            result = Err(ActivationError::X2ApicMode);
+            return;
+        }
+        let desired_frame =
+            PhysFrame::containing_address(PhysAddr::new(topology.local_apic_address));
+        let mut flags =
+            x86_64::registers::model_specific::ApicBaseFlags::from_bits_truncate(current_raw);
+        flags.remove(x86_64::registers::model_specific::ApicBaseFlags::X2APIC_ENABLE);
+        flags.insert(x86_64::registers::model_specific::ApicBaseFlags::LAPIC_ENABLE);
+        if current_frame.start_address() != desired_frame.start_address()
+            || current_raw & IA32_APIC_BASE_LAPIC_ENABLE == 0
+        {
+            unsafe {
+                x86_64::registers::model_specific::ApicBase::write(desired_frame, flags);
+            }
+        }
+
+        let local_apic_id = (unsafe { local.read(LOCAL_APIC_ID) } >> 24) as u8;
+        let redirection_count =
+            IoApic::redirection_count(unsafe { io.read_register(IO_APIC_VERSION as u8) });
+        let Ok(timer_index) =
+            redirection_index(timer_route.global_irq, global_irq_base, redirection_count)
+        else {
+            result = Err(ActivationError::GsiOutsideIoApic);
+            return;
+        };
+        let Ok(keyboard_index) = redirection_index(
+            keyboard_route.global_irq,
+            global_irq_base,
+            redirection_count,
+        ) else {
+            result = Err(ActivationError::GsiOutsideIoApic);
+            return;
+        };
+        if timer_index == keyboard_index {
+            result = Err(ActivationError::RedirectionIndexUnavailable);
+            return;
+        }
+        let timer_entry = RedirectionEntry::new(32, local_apic_id)
+            .with_polarity(timer_route.active_low)
+            .with_trigger_mode(timer_route.level_triggered);
+        let keyboard_entry = RedirectionEntry::new(33, local_apic_id)
+            .with_polarity(keyboard_route.active_low)
+            .with_trigger_mode(keyboard_route.level_triggered);
+        if !unsafe { io.write_redirection(timer_index, timer_entry) }
+            || !unsafe { io.write_redirection(keyboard_index, keyboard_entry) }
+        {
+            result = Err(ActivationError::RedirectionIndexUnavailable);
+            return;
+        }
+        unsafe { local.enable(LOCAL_APIC_SPURIOUS_VECTOR) };
+
+        *APIC_RUNTIME.lock() = Some(ApicRuntime {
+            local,
+            io,
+            timer_index,
+            keyboard_index,
+            timer_entry,
+            keyboard_entry,
+        });
+        mask_pic();
+        APIC_ACTIVE.store(true, Ordering::Release);
+        if let Some(runtime) = *APIC_RUNTIME.lock() {
+            unsafe {
+                runtime
+                    .io
+                    .write_redirection(runtime.timer_index, runtime.timer_entry.unmasked());
+                runtime
+                    .io
+                    .write_redirection(runtime.keyboard_index, runtime.keyboard_entry.unmasked());
+            }
+        }
+        result = Ok(ApicActivation {
+            local_apic_id,
+            io_apic_redirection_count: redirection_count,
+            timer_global_irq: timer_route.global_irq,
+            keyboard_global_irq: keyboard_route.global_irq,
+        });
+    });
+    result
 }
 
 #[cfg(test)]
@@ -384,8 +645,13 @@ mod tests {
     fn decodes_and_encodes_redirection_entries() {
         let entry = RedirectionEntry::new(0x45, 3)
             .with_delivery_mode(4)
+            .with_polarity(true)
+            .with_trigger_mode(true)
             .unmasked();
-        assert_eq!(RedirectionEntry::from_raw(entry.to_raw()), entry);
+        let raw = entry.to_raw();
+        assert_ne!(raw & (1 << 13), 0);
+        assert_ne!(raw & (1 << 15), 0);
+        assert_eq!(RedirectionEntry::from_raw(raw), entry);
     }
 
     #[test]
@@ -416,10 +682,14 @@ mod tests {
                 global_irq_base: 0,
             }); 8],
             io_apic_count: 1,
+            interrupt_overrides: [None; 16],
+            interrupt_override_count: 0,
         };
         let topology = ApicTopology::from_madt(&info);
         assert_eq!(topology.local_apic_address, LOCAL_APIC_DEFAULT_BASE);
         assert_eq!(topology.io_apic_count, 1);
         assert_eq!(topology.first_io_apic_address, Some(0xFEC0_0000));
+        assert_eq!(topology.first_io_apic_global_irq_base, Some(0));
+        assert_eq!(topology.timer_route.unwrap().global_irq, 0);
     }
 }

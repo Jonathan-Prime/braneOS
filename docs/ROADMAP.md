@@ -2,7 +2,7 @@
 
 > Documento derivado de `PROJECT_MASTER_SPEC.md` §19.  
 > Estado: **Activo** — se actualiza conforme el proyecto avanza.  
-> Última actualización: **2026-08-27**
+> Última actualización: **2026-08-28**
 
 ---
 
@@ -18,7 +18,7 @@
  ─────────────────────────────────────────────────────┼─────────────────────────────────────────────────▶
 ```
 
-**Foco actual:** Fase 11 — automatización, validación y publicación de Brane OS v1.0.
+**Foco actual:** Fase 12 — activación incremental de APIC y preparación SMP.
 
 ---
 
@@ -230,7 +230,7 @@ físico y ejecución del gate final v1.0.
 | Componente | Estado | Prioridad | Dependencia |
 |-----------|--------|-----------|-------------|
 | Parser MADT | ✅ | ALTA | ACPI |
-| Local APIC + I/O APIC | 🔄 | ALTA | IDT y routing de IRQ |
+| Local APIC + I/O APIC | ✅ | ALTA | IDT, overrides MADT y routing IRQ0/IRQ1 |
 | Arranque de Application Processors | 🔲 | ALTA | Trampoline de memoria baja |
 | Estado per-CPU | 🔲 | ALTA | GDT/TSS, stacks y syscall MSRs por CPU |
 | Scheduler multicore | 🔲 | ALTA | Run queues y balanceo |
@@ -240,9 +240,10 @@ físico y ejecución del gate final v1.0.
 múltiples cores y supera stress tests sin deadlocks ni corrupción.
 
 **Progreso:** parser MADT integrado en el descubrimiento ACPI (incluye entradas
-x2APIC y sobrescritura de dirección LAPIC); capa de registros, mapeo inicial de
-ventanas MMIO y codificación de redirecciones I/O APIC implementadas y probadas.
-Pendiente enrutar IRQs y programar el Local APIC real.
+x2APIC, sobrescritura de dirección LAPIC y `Interrupt Source Override`); ventanas
+MMIO del LAPIC/I/O APIC con atributos uncached; y hand-off controlado de IRQ0/IRQ1
+al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al PIC.
+Pendientes el arranque de APs, estado per-CPU y scheduler multicore.
 
 ---
 
@@ -291,12 +292,12 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 113 (incluye integration, stress y mutation-fuzz en `tests.rs`) |
+| **Unit tests** | 115 (incluye MADT/APIC, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |
 | **Make targets de test** | 9 (test, stress-test, iso-test, release-test, boot-test, acpi-test, security-test, integration-test, e2e-test) |
-| **Fases completadas** | 10 fases base completadas; Fase 11 es el foco actual |
+| **Fases completadas** | 10 fases base completadas; Fases 11 y 12 avanzan en paralelo |
 
 ---
 

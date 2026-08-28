@@ -36,10 +36,11 @@ impl InterruptIndex {
     }
 }
 
-/// Initialize the PIC and unmask interrupts.
+/// Initialize the PIC while keeping CPU interrupts disabled.
 ///
-/// Must be called after `idt::init()`.
-pub fn init() {
+/// This form is used during APIC hand-off and ACPI resume, where the caller
+/// must finish restoring the interrupt controller before executing `sti`.
+pub fn init_masked() {
     unsafe {
         let mut pics = PICS.lock();
         pics.initialize();
@@ -48,6 +49,21 @@ pub fn init() {
         // firmware-provided masks captured by `initialize`.
         pics.write_masks(0b1111_1000, 0xff);
     }
+    crate::serial_println!("[pic]  8259 PIC initialized (masked hand-off state).");
+}
+
+/// Mask both legacy PICs without changing their vector configuration.
+pub fn mask_all() {
+    unsafe {
+        PICS.lock().write_masks(0xff, 0xff);
+    }
+}
+
+/// Initialize the PIC and unmask interrupts.
+///
+/// Must be called after `idt::init()`.
+pub fn init() {
+    init_masked();
     x86_64::instructions::interrupts::enable();
     crate::serial_println!("[pic]  8259 PIC initialized. Hardware interrupts enabled.");
 }

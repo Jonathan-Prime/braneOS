@@ -17,6 +17,28 @@ pub struct IoApicEntry {
     pub global_irq_base: u32,
 }
 
+/// Legacy ISA interrupt remapping described by MADT entry type 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InterruptSourceOverride {
+    pub bus: u8,
+    pub source_irq: u8,
+    pub global_irq: u32,
+    pub flags: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IsaIrqRoute {
+    pub global_irq: u32,
+    pub active_low: bool,
+    pub level_triggered: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrqRouteError {
+    ReservedPolarity,
+    ReservedTriggerMode,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MadtInfo {
     pub local_apic_address: u64,
@@ -24,6 +46,8 @@ pub struct MadtInfo {
     pub cpu_count: usize,
     pub io_apics: [Option<IoApicEntry>; 8],
     pub io_apic_count: usize,
+    pub interrupt_overrides: [Option<InterruptSourceOverride>; 16],
+    pub interrupt_override_count: usize,
 }
 
 impl MadtInfo {
@@ -35,6 +59,42 @@ impl MadtInfo {
             .flatten()
             .filter(|cpu| cpu.enabled)
             .count()
+    }
+
+    /// Resolve an ISA IRQ to its Global System Interrupt and electrical mode.
+    /// ISA defaults to active-high, edge-triggered when no override exists.
+    pub fn isa_irq_route(&self, source_irq: u8) -> Result<IsaIrqRoute, IrqRouteError> {
+        let Some(entry) = self
+            .interrupt_overrides
+            .iter()
+            .take(self.interrupt_override_count)
+            .flatten()
+            .find(|entry| entry.bus == 0 && entry.source_irq == source_irq)
+        else {
+            return Ok(IsaIrqRoute {
+                global_irq: source_irq as u32,
+                active_low: false,
+                level_triggered: false,
+            });
+        };
+
+        let active_low = match entry.flags & 0b11 {
+            // "Conforms" uses the ISA bus default.
+            0 | 1 => false,
+            3 => true,
+            _ => return Err(IrqRouteError::ReservedPolarity),
+        };
+        let level_triggered = match (entry.flags >> 2) & 0b11 {
+            // "Conforms" uses the ISA bus default.
+            0 | 1 => false,
+            3 => true,
+            _ => return Err(IrqRouteError::ReservedTriggerMode),
+        };
+        Ok(IsaIrqRoute {
+            global_irq: entry.global_irq,
+            active_low,
+            level_triggered,
+        })
     }
 }
 
@@ -66,6 +126,8 @@ pub fn parse(table: &[u8]) -> Result<MadtInfo, ParseError> {
         cpu_count: 0,
         io_apics: [None; 8],
         io_apic_count: 0,
+        interrupt_overrides: [None; 16],
+        interrupt_override_count: 0,
     };
     let mut offset = 44;
     while offset < length {
@@ -111,6 +173,26 @@ pub fn parse(table: &[u8]) -> Result<MadtInfo, ParseError> {
                         ),
                     });
                     info.io_apic_count += 1;
+                }
+            }
+            // Interrupt Source Override (ACPI 6.5, MADT type 2).
+            2 => {
+                if entry_len < 10 {
+                    return Err(ParseError::InvalidLength);
+                }
+                if info.interrupt_override_count < info.interrupt_overrides.len() {
+                    info.interrupt_overrides[info.interrupt_override_count] =
+                        Some(InterruptSourceOverride {
+                            bus: table[offset + 2],
+                            source_irq: table[offset + 3],
+                            global_irq: u32::from_le_bytes(
+                                table[offset + 4..offset + 8].try_into().unwrap(),
+                            ),
+                            flags: u16::from_le_bytes(
+                                table[offset + 8..offset + 10].try_into().unwrap(),
+                            ),
+                        });
+                    info.interrupt_override_count += 1;
                 }
             }
             // Local APIC Address Override (ACPI 6.5, MADT type 5).
@@ -220,6 +302,46 @@ mod tests {
     #[test]
     fn rejects_short_known_entry() {
         assert_eq!(parse(&table(&[1, 2])), Err(ParseError::InvalidLength));
+        assert_eq!(parse(&table(&[2, 2])), Err(ParseError::InvalidLength));
         assert_eq!(parse(&table(&[9, 2])), Err(ParseError::InvalidLength));
+    }
+
+    #[test]
+    fn resolves_isa_interrupt_source_override() {
+        let info = parse(&table(&[
+            2, 10, 0, 0, // type, length, ISA bus, IRQ 0
+            2, 0, 0, 0, // GSI 2
+            0x0f, 0, // active-low, level-triggered
+        ]))
+        .unwrap();
+        assert_eq!(info.interrupt_override_count, 1);
+        assert_eq!(
+            info.isa_irq_route(0),
+            Ok(IsaIrqRoute {
+                global_irq: 2,
+                active_low: true,
+                level_triggered: true,
+            })
+        );
+        assert_eq!(
+            info.isa_irq_route(1),
+            Ok(IsaIrqRoute {
+                global_irq: 1,
+                active_low: false,
+                level_triggered: false,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_reserved_override_modes_when_routing() {
+        let info = parse(&table(&[2, 10, 0, 1, 1, 0, 0, 0, 2, 0])).unwrap();
+        assert_eq!(info.isa_irq_route(1), Err(IrqRouteError::ReservedPolarity));
+
+        let info = parse(&table(&[2, 10, 0, 1, 1, 0, 0, 0, 8, 0])).unwrap();
+        assert_eq!(
+            info.isa_irq_route(1),
+            Err(IrqRouteError::ReservedTriggerMode)
+        );
     }
 }

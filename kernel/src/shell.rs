@@ -14,6 +14,7 @@
 
 extern crate alloc;
 
+use crate::apic;
 use crate::{
     acpi, ai, audit, brane, dns, memory, module_loader, net, process, sched, security,
     serial_println, socket, tty, vfs,
@@ -488,11 +489,22 @@ fn cmd_acpi() {
     if let Some(apic) = info.apic {
         let _ = writeln!(
             cursor,
-            "APIC topology: LAPIC=0x{:X}, CPUs={}, I/O APICs={}, first I/O APIC={:?}",
+            "APIC: mode={}, LAPIC=0x{:X}, CPUs={}, I/O APICs={}, first I/O APIC={:?}",
+            if apic::is_active() {
+                "LAPIC/IOAPIC"
+            } else {
+                "8259 PIC fallback"
+            },
             apic.local_apic_address,
             apic.enabled_cpu_count,
             apic.io_apic_count,
             apic.first_io_apic_address
+        );
+        let _ = writeln!(
+            cursor,
+            "ISA routes: timer GSI={:?}, keyboard GSI={:?}",
+            apic.timer_route.map(|route| route.global_irq),
+            apic.keyboard_route.map(|route| route.global_irq)
         );
     } else {
         let _ = writeln!(cursor, "APIC topology: unavailable");
