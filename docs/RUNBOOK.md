@@ -27,6 +27,11 @@ En QEMU y hardware con xAPIC, el arranque muestra `IRQ routing active` y las
 IRQ0/IRQ1 quedan en el I/O APIC; si ACPI, MMIO o el modo APIC no son utilizables,
 se conserva automáticamente el 8259 PIC. La prueba de reanudación S3 repite la
 misma selección y permite verificarla con el comando `acpi` (`mode=LAPIC/IOAPIC`).
+Cuando MADT contiene CPUs habilitadas también aparece `CPU boot plan ready` y la
+asignación del BSP; los APs permanecen en `Discovered` hasta completar su
+trampoline de arranque.
+
+Para reproducirlo con cuatro vCPU: `make smp-test`.
 
 ---
 

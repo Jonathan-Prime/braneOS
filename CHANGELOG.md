@@ -14,6 +14,8 @@ All notable changes to Brane OS are documented here. The project follows
 - Safe Local APIC/I/O APIC MMIO windows with initial boot-time page mapping.
 - MADT ISA interrupt overrides and controlled IRQ0/IRQ1 hand-off to the APIC,
   including LAPIC EOI, S3 restoration and automatic 8259 PIC fallback.
+- Deterministic SMP boot plan with APIC ID validation, BSP assignment and
+  lifecycle tracking for future AP startup.
 
 ## 0.1.0 — Foundation
 

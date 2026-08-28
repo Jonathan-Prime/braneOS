@@ -143,8 +143,9 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator e IPC) |
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
+| **SMP plan test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, MADT plan, BSP assignment y shell) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
-| **ACPI MADT/APIC** | **Activo** | `cargo test -p brane_os_kernel --lib madt` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing y fallback PIC) |
+| **ACPI MADT/APIC/SMP** | **Activo** | `cargo test -p brane_os_kernel --lib madt` y `... --lib smp` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing, BSP y fallback PIC) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
 | **Integration tests (QEMU)** | **Activo** | `make integration-test` (syscall/service + capability broker) |
 | **E2E tests (QEMU)** | **Activo** | `make e2e-test` (disponibilidad de brsh + secuencia completa de boot) |
@@ -186,6 +187,7 @@ La validación local equivalente recomendada está documentada en
 | `make release-test` | Valida ISO, checksum, archive y catálogo El Torito |
 | `make test-image` | Compila una imagen compartida con el kernel release |
 | `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
+| `make smp-test` | Boot con 4 vCPU y validación del plan SMP/BSP |
 | `make acpi-test` | Suspensión/reanudación ACPI S3 en QEMU/QMP (120 s) |
 | `make security-test` | Security tests en QEMU |
 | `make integration-test` | Integration tests en QEMU |

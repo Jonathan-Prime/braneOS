@@ -169,15 +169,18 @@ def build_disk_image(kernel_path: Path) -> Path:
 # QEMU runner
 # ---------------------------------------------------------------------------
 
-def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> int:
+def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus: int = 1) -> int:
     """
     Launch QEMU with the given disk image or ISO, capture serial output,
     and return 0 (pass), 1 (fail).
     """
-    cmd = [
-        QEMU_BIN,
-        "-m", "256M",
-    ]
+    cmd = [QEMU_BIN, "-m", "256M", "-smp", str(cpus)]
+    required_strings = list(REQUIRED_STRINGS)
+    if cpus > 1:
+        required_strings.extend([
+            f"[smp] CPU boot plan ready: {cpus} enabled CPU(s)",
+            "[smp] BSP assigned to CPU slot 0",
+        ])
     firmware_vars: Path | None = None
     if media_type == "iso":
         ovmf = find_ovmf()
@@ -228,7 +231,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> i
         assert proc.stdout is not None
         line_chars: list[str] = []
         scan_window = ""
-        max_pattern_len = max(len(s) for s in REQUIRED_STRINGS + FAIL_STRINGS)
+        max_pattern_len = max(len(s) for s in required_strings + FAIL_STRINGS)
 
         def emit_partial_line() -> None:
             if not line_chars:
@@ -243,7 +246,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> i
                 line_chars.append(char)
                 scan_window = (scan_window + char)[-max_pattern_len:]
 
-                for req in REQUIRED_STRINGS:
+                for req in required_strings:
                     if req not in found and req in scan_window:
                         found.add(req)
                         ok(f"Found required string: {req!r}")
@@ -261,7 +264,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> i
                     return
 
                 # Detect the shell prompt immediately even though it has no newline.
-                if found == set(REQUIRED_STRINGS) and not failed_reason:
+                if found == set(required_strings) and not failed_reason:
                     emit_partial_line()
                     done_event.set()
                     return
@@ -295,7 +298,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> i
             error(msg)
         return 1
 
-    missing = set(REQUIRED_STRINGS) - found
+    missing = set(required_strings) - found
     if missing:
         if not triggered:
             error(f"Timeout after {timeout}s — serial output did not contain all required strings.")
@@ -320,6 +323,8 @@ def parse_args() -> argparse.Namespace:
                    help=f"Seconds before giving up (default: {DEFAULT_TIMEOUT})")
     p.add_argument("--no-build", action="store_true",
                    help="Skip build step; use KERNEL_BIN_PATH env var or pre-existing image")
+    p.add_argument("--cpus", type=int, default=1,
+                   help="Number of virtual CPUs for QEMU (default: 1)")
     media = p.add_mutually_exclusive_group()
     media.add_argument("--img", type=str, default=None,
                        help="Path to existing .img file, skips build entirely")
@@ -331,6 +336,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     os.environ["NO_RUN"] = "1"
     args = parse_args()
+    if not 1 <= args.cpus <= 32:
+        error("--cpus must be between 1 and 32")
+        sys.exit(2)
     start = time.monotonic()
 
     info(f"Brane OS Boot Test — timeout={args.timeout}s")
@@ -355,7 +363,7 @@ def main() -> None:
         kernel_path = build_kernel()
         img_path = build_disk_image(kernel_path)
 
-    rc = run_qemu_test(img_path, args.timeout, media_type)
+    rc = run_qemu_test(img_path, args.timeout, media_type, args.cpus)
 
     elapsed = time.monotonic() - start
     info(f"Total elapsed: {elapsed:.1f}s")

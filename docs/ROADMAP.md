@@ -232,7 +232,7 @@ físico y ejecución del gate final v1.0.
 | Parser MADT | ✅ | ALTA | ACPI |
 | Local APIC + I/O APIC | ✅ | ALTA | IDT, overrides MADT y routing IRQ0/IRQ1 |
 | Arranque de Application Processors | 🔲 | ALTA | Trampoline de memoria baja |
-| Estado per-CPU | 🔲 | ALTA | GDT/TSS, stacks y syscall MSRs por CPU |
+| Estado per-CPU | 🔄 | ALTA | Plan MADT validado; faltan GDT/TSS, stacks y MSRs por CPU |
 | Scheduler multicore | 🔲 | ALTA | Run queues y balanceo |
 | Sincronización y stress SMP | 🔲 | ALTA | Spinlocks, atomics y pruebas de carrera |
 
@@ -243,7 +243,9 @@ múltiples cores y supera stress tests sin deadlocks ni corrupción.
 x2APIC, sobrescritura de dirección LAPIC y `Interrupt Source Override`); ventanas
 MMIO del LAPIC/I/O APIC con atributos uncached; y hand-off controlado de IRQ0/IRQ1
 al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al PIC.
-Pendientes el arranque de APs, estado per-CPU y scheduler multicore.
+El plan SMP valida APIC IDs/UIDs, asigna el BSP y modela estados de cada AP sin
+arrancar todavía ningún core secundario. Pendientes el trampoline, stacks,
+arranque de APs y scheduler multicore.
 
 ---
 
@@ -292,11 +294,11 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 115 (incluye MADT/APIC, integration, stress y mutation-fuzz) |
+| **Unit tests** | 119 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |
-| **Make targets de test** | 9 (test, stress-test, iso-test, release-test, boot-test, acpi-test, security-test, integration-test, e2e-test) |
+| **Make targets de test** | 10 (test, stress-test, iso-test, release-test, boot-test, smp-test, acpi-test, security-test, integration-test, e2e-test) |
 | **Fases completadas** | 10 fases base completadas; Fases 11 y 12 avanzan en paralelo |
 
 ---

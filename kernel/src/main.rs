@@ -212,9 +212,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 }
             }
         }
-        if local_mapped && io_mapped {
+        if local_mapped && io_mapped && acpi::info().smp.is_some() {
             match apic::activate_legacy_irqs(topology, phys_offset, pic::mask_all) {
                 Ok(activation) => {
+                    match acpi::assign_bsp(activation.local_apic_id as u32) {
+                        Ok(slot) => {
+                            serial_println!(
+                                "[smp] BSP assigned to CPU slot {}; AP startup deferred",
+                                slot
+                            );
+                        }
+                        Err(error) => {
+                            serial_println!("[smp] BSP assignment unavailable: {:?}", error);
+                        }
+                    }
                     serial_println!(
                         "[apic] IRQ routing active: LAPIC ID={}, IOAPIC redirections={}, timer GSI={}, keyboard GSI={}",
                         activation.local_apic_id,

@@ -154,6 +154,7 @@ struct SleepType {
 pub struct AcpiInfo {
     pub initialized: bool,
     pub apic: Option<crate::apic::ApicTopology>,
+    pub smp: Option<crate::smp::CpuBootPlan>,
     pub s1_supported: bool,
     pub s3_supported: bool,
     pub s4_supported: bool,
@@ -178,6 +179,7 @@ pub enum SuspendError {
 struct AcpiState {
     initialized: bool,
     apic: Option<crate::apic::ApicTopology>,
+    smp: Option<crate::smp::CpuBootPlan>,
     pm1a_evt_blk: Option<u64>,
     pm1b_evt_blk: Option<u64>,
     pm1a_cnt_blk: Option<u64>,
@@ -197,6 +199,7 @@ struct AcpiState {
 static ACPI_STATE: Mutex<AcpiState> = Mutex::new(AcpiState {
     initialized: false,
     apic: None,
+    smp: None,
     pm1a_evt_blk: None,
     pm1b_evt_blk: None,
     pm1a_cnt_blk: None,
@@ -320,6 +323,7 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
         })?
     });
     let mut apic_topology = None;
+    let mut smp_plan = None;
     if let Some(madt_addr) = madt_addr {
         if let Some(madt_virt) = physical_memory_offset.checked_add(madt_addr) {
             let madt_len =
@@ -332,6 +336,21 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
                 match crate::madt::parse(madt_bytes) {
                     Ok(info) => {
                         apic_topology = Some(crate::apic::ApicTopology::from_madt(&info));
+                        match crate::smp::CpuBootPlan::from_madt(&info) {
+                            Ok(plan) => {
+                                crate::serial_println!(
+                                    "[smp] CPU boot plan ready: {} enabled CPU(s), AP startup deferred",
+                                    plan.enabled_cpu_count
+                                );
+                                smp_plan = Some(plan);
+                            }
+                            Err(error) => {
+                                crate::serial_println!(
+                                    "[smp] CPU boot plan unavailable: {:?}; AP startup disabled",
+                                    error
+                                );
+                            }
+                        }
                         crate::serial_println!(
                             "[acpi] MADT: {} enabled CPU(s), {} I/O APIC(s), LAPIC=0x{:X}",
                             info.enabled_cpu_count(),
@@ -369,6 +388,7 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     *state = AcpiState {
         initialized: true,
         apic: apic_topology,
+        smp: smp_plan,
         pm1a_evt_blk: nonzero(pm1a_evt),
         pm1b_evt_blk: nonzero(pm1b_evt),
         pm1a_cnt_blk: nonzero(pm1a_cnt),
@@ -866,6 +886,7 @@ pub fn info() -> AcpiInfo {
     AcpiInfo {
         initialized: state.initialized,
         apic: state.apic,
+        smp: state.smp,
         s1_supported: state.sleep_types[1].is_some(),
         s3_supported: state.sleep_types[3].is_some(),
         s4_supported: state.sleep_types[4].is_some(),
@@ -879,6 +900,16 @@ pub fn info() -> AcpiInfo {
 /// APIC resume uses the same offset after firmware returns from S3.
 pub fn physical_memory_offset() -> u64 {
     ACPI_STATE.lock().phys_mem_offset.unwrap_or(0)
+}
+
+/// Record the bootstrap processor selected by the Local APIC hand-off.
+pub fn assign_bsp(apic_id: u32) -> Result<usize, crate::smp::CpuPlanError> {
+    ACPI_STATE
+        .lock()
+        .smp
+        .as_mut()
+        .ok_or(crate::smp::CpuPlanError::NoEnabledCpu)?
+        .assign_bsp(apic_id)
 }
 
 pub fn shutdown() -> ! {

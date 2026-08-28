@@ -506,6 +506,15 @@ fn cmd_acpi() {
             apic.timer_route.map(|route| route.global_irq),
             apic.keyboard_route.map(|route| route.global_irq)
         );
+        if let Some(plan) = info.smp {
+            let _ = writeln!(
+                cursor,
+                "SMP plan: enabled={}, online={}, BSP slot={:?}",
+                plan.enabled_cpu_count,
+                plan.online_cpu_count(),
+                plan.bsp_index
+            );
+        }
     } else {
         let _ = writeln!(cursor, "APIC topology: unavailable");
     }

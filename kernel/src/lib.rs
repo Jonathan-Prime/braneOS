@@ -40,6 +40,7 @@ pub mod sched;
 pub mod security;
 pub mod shell;
 pub mod signal;
+pub mod smp;
 pub mod socket;
 pub mod syscall;
 pub mod tty;
