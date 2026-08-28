@@ -293,6 +293,48 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
             return;
         }
     };
+    let madt_addr = if rsdp.revision >= 2 && rsdp.xsdt_address != 0 {
+        find_table_address(
+            physical_memory_offset + rsdp.xsdt_address,
+            physical_memory_offset,
+            8,
+            b"XSDT",
+            b"APIC",
+        )
+    } else {
+        None
+    }
+    .or_else(|| {
+        (rsdp.rsdt_address != 0).then(|| {
+            find_table_address(
+                physical_memory_offset + rsdp.rsdt_address as u64,
+                physical_memory_offset,
+                4,
+                b"RSDT",
+                b"APIC",
+            )
+        })?
+    });
+    if let Some(madt_addr) = madt_addr {
+        let madt_virt = physical_memory_offset + madt_addr;
+        let madt_len = unsafe { core::ptr::read_unaligned((madt_virt + 4) as *const u32) } as usize;
+        let madt_bytes = unsafe { core::slice::from_raw_parts(madt_virt as *const u8, madt_len) };
+        match crate::madt::parse(madt_bytes) {
+            Ok(info) => {
+                crate::serial_println!(
+                    "[acpi] MADT: {} enabled CPU(s), {} I/O APIC(s), LAPIC=0x{:X}",
+                    info.enabled_cpu_count(),
+                    info.io_apic_count,
+                    info.local_apic_address
+                );
+            }
+            Err(error) => {
+                crate::serial_println!("[acpi] MADT invalid: {:?}", error);
+            }
+        }
+    } else {
+        crate::serial_println!("[acpi] MADT (APIC) table not found; SMP disabled.");
+    }
     let fadt_len = fadt.header.length as usize;
 
     let (pm1a_evt, pm1b_evt, evt_is_io) = event_registers(fadt, fadt_len);
@@ -376,6 +418,47 @@ fn find_fadt(
             && verify_checksum(entry_virt as *const u8, header_len)
         {
             return Some(unsafe { &*(entry_virt as *const Fadt) });
+        }
+    }
+    None
+}
+
+fn find_table_address(
+    root_virt: u64,
+    physical_memory_offset: u64,
+    entry_size: usize,
+    signature: &[u8; 4],
+    wanted: &[u8; 4],
+) -> Option<u64> {
+    let root = unsafe { &*(root_virt as *const DescriptionHeader) };
+    let root_len = root.length as usize;
+    if &root.signature != signature
+        || root_len < DESCRIPTION_HEADER_LEN
+        || !verify_checksum(root_virt as *const u8, root_len)
+    {
+        return None;
+    }
+    let entry_count = (root_len - DESCRIPTION_HEADER_LEN) / entry_size;
+    let entries = (root_virt + DESCRIPTION_HEADER_LEN as u64) as *const u8;
+    for index in 0..entry_count {
+        let entry_phys = unsafe {
+            if entry_size == 8 {
+                core::ptr::read_unaligned(entries.add(index * 8) as *const u64)
+            } else {
+                core::ptr::read_unaligned(entries.add(index * 4) as *const u32) as u64
+            }
+        };
+        if entry_phys == 0 {
+            continue;
+        }
+        let entry_virt = physical_memory_offset + entry_phys;
+        let header = unsafe { &*(entry_virt as *const DescriptionHeader) };
+        let header_len = header.length as usize;
+        if &header.signature == wanted
+            && header_len >= DESCRIPTION_HEADER_LEN
+            && verify_checksum(entry_virt as *const u8, header_len)
+        {
+            return Some(entry_phys);
         }
     }
     None

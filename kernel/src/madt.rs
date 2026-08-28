@@ -26,9 +26,21 @@ pub struct MadtInfo {
     pub io_apic_count: usize,
 }
 
+impl MadtInfo {
+    /// Number of logical processors marked enabled by firmware.
+    pub fn enabled_cpu_count(&self) -> usize {
+        self.cpus[..self.cpu_count]
+            .iter()
+            .flatten()
+            .filter(|cpu| cpu.enabled)
+            .count()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseError {
     TooShort,
+    InvalidSignature,
     InvalidLength,
     InvalidChecksum,
 }
@@ -36,6 +48,9 @@ pub enum ParseError {
 pub fn parse(table: &[u8]) -> Result<MadtInfo, ParseError> {
     if table.len() < 44 {
         return Err(ParseError::TooShort);
+    }
+    if &table[..4] != b"APIC" {
+        return Err(ParseError::InvalidSignature);
     }
     let length = u32::from_le_bytes(table[4..8].try_into().unwrap()) as usize;
     if length < 44 || length > table.len() {
@@ -122,5 +137,18 @@ mod tests {
         let len = t.len() as u32;
         t[4..8].copy_from_slice(&len.to_le_bytes());
         assert_eq!(parse(&t), Err(ParseError::InvalidLength));
+    }
+
+    #[test]
+    fn counts_only_enabled_cpus() {
+        let t = table(&[0, 8, 0, 1, 1, 0, 0, 0, 0, 8, 1, 2, 0, 0, 0, 0]);
+        assert_eq!(parse(&t).unwrap().enabled_cpu_count(), 1);
+    }
+
+    #[test]
+    fn rejects_non_madt_signature() {
+        let mut t = table(&[]);
+        t[..4].copy_from_slice(b"FACP");
+        assert_eq!(parse(&t), Err(ParseError::InvalidSignature));
     }
 }

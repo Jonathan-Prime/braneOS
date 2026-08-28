@@ -144,6 +144,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
+| **ACPI MADT parser** | **Activo** | `cargo test -p brane_os_kernel --lib madt` (firma, checksum, límites, CPU/I/O APIC) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
 | **Integration tests (QEMU)** | **Activo** | `make integration-test` (syscall/service + capability broker) |
 | **E2E tests (QEMU)** | **Activo** | `make e2e-test` (disponibilidad de brsh + secuencia completa de boot) |

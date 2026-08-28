@@ -18,6 +18,7 @@ pub mod serial;
 
 pub mod acpi;
 pub mod ai;
+pub mod apic;
 pub mod audit;
 pub mod brane;
 pub mod brane_discovery;

@@ -230,7 +230,7 @@ físico y ejecución del gate final v1.0.
 | Componente | Estado | Prioridad | Dependencia |
 |-----------|--------|-----------|-------------|
 | Parser MADT | 🔄 | ALTA | ACPI |
-| Local APIC + I/O APIC | 🔲 | ALTA | IDT y routing de IRQ |
+| Local APIC + I/O APIC | 🔄 | ALTA | IDT y routing de IRQ |
 | Arranque de Application Processors | 🔲 | ALTA | Trampoline de memoria baja |
 | Estado per-CPU | 🔲 | ALTA | GDT/TSS, stacks y syscall MSRs por CPU |
 | Scheduler multicore | 🔲 | ALTA | Run queues y balanceo |
@@ -239,9 +239,9 @@ físico y ejecución del gate final v1.0.
 **Criterio de salida:** QEMU arranca con al menos 4 vCPU, ejecuta tareas en
 múltiples cores y supera stress tests sin deadlocks ni corrupción.
 
-**Progreso:** parser MADT aislado implementado y probado (CPUs locales e I/O
-APIC, checksum y límites). Pendiente integrar la localización de la tabla ACPI
-en el arranque y programar APIC/SMP.
+**Progreso:** parser MADT integrado en el descubrimiento ACPI; capa de registros
+APIC y codificación de redirecciones I/O APIC implementadas y probadas. Pendiente
+mapear MMIO, enrutar IRQs y programar el Local APIC real.
 
 ---
 
