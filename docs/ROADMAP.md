@@ -192,7 +192,7 @@ en un release versionado.
 
 **Dependencias:** Todas las fases anteriores.
 
-**Criterio de salida alcanzado:** build bare-metal, Clippy, 98 tests lógicos y
+**Criterio de salida alcanzado:** build bare-metal, Clippy, 113 tests lógicos y
 cinco suites QEMU automatizadas pasan; existen imágenes BIOS/UEFI y empaquetado ISO.
 
 ---
@@ -229,7 +229,7 @@ físico y ejecución del gate final v1.0.
 
 | Componente | Estado | Prioridad | Dependencia |
 |-----------|--------|-----------|-------------|
-| Parser MADT | 🔄 | ALTA | ACPI |
+| Parser MADT | ✅ | ALTA | ACPI |
 | Local APIC + I/O APIC | 🔄 | ALTA | IDT y routing de IRQ |
 | Arranque de Application Processors | 🔲 | ALTA | Trampoline de memoria baja |
 | Estado per-CPU | 🔲 | ALTA | GDT/TSS, stacks y syscall MSRs por CPU |
@@ -239,9 +239,10 @@ físico y ejecución del gate final v1.0.
 **Criterio de salida:** QEMU arranca con al menos 4 vCPU, ejecuta tareas en
 múltiples cores y supera stress tests sin deadlocks ni corrupción.
 
-**Progreso:** parser MADT integrado en el descubrimiento ACPI; capa de registros
-APIC y codificación de redirecciones I/O APIC implementadas y probadas. Pendiente
-mapear MMIO, enrutar IRQs y programar el Local APIC real.
+**Progreso:** parser MADT integrado en el descubrimiento ACPI (incluye entradas
+x2APIC y sobrescritura de dirección LAPIC); capa de registros, mapeo inicial de
+ventanas MMIO y codificación de redirecciones I/O APIC implementadas y probadas.
+Pendiente enrutar IRQs y programar el Local APIC real.
 
 ---
 
@@ -290,7 +291,7 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 98 (incluye integration, stress y mutation-fuzz en `tests.rs`) |
+| **Unit tests** | 113 (incluye integration, stress y mutation-fuzz en `tests.rs`) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |

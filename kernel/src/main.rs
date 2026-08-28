@@ -36,8 +36,8 @@ mod pic;
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::serial_println;
 use brane_os_kernel::{
-    acpi, ai, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process, ramfs,
-    sched, security, serial, shell, socket, syscall, tty, usermode, vfs,
+    acpi, ai, apic, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process,
+    ramfs, sched, security, serial, shell, socket, syscall, tty, usermode, vfs,
 };
 
 // -----------------------------------------------------------------------
@@ -169,6 +169,44 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     } else {
         serial_println!("[acpi] RSDP unavailable; power management disabled.");
+    }
+
+    // Map APIC controller windows discovered through MADT. Register access is
+    // intentionally deferred until IRQ routing is enabled in the SMP phase;
+    // this step only guarantees that the MMIO pages are available.
+    if let Some(topology) = acpi::info().apic {
+        let local_result = apic::map_mmio_page(
+            &mut mapper,
+            &mut frame_alloc,
+            phys_offset,
+            topology.local_apic_address,
+        );
+        match local_result {
+            Ok(()) => {
+                serial_println!(
+                    "[apic] Local APIC MMIO mapped at phys=0x{:X} virt=0x{:X}",
+                    topology.local_apic_address,
+                    topology.local_apic_address.saturating_add(phys_offset)
+                );
+            }
+            Err(error) => {
+                serial_println!("[apic] Local APIC mapping unavailable: {}", error);
+            }
+        }
+        if let Some(io_apic_address) = topology.first_io_apic_address {
+            match apic::map_mmio_page(&mut mapper, &mut frame_alloc, phys_offset, io_apic_address) {
+                Ok(()) => {
+                    serial_println!(
+                        "[apic] I/O APIC MMIO mapped at phys=0x{:X} virt=0x{:X}",
+                        io_apic_address,
+                        io_apic_address.saturating_add(phys_offset)
+                    );
+                }
+                Err(error) => {
+                    serial_println!("[apic] I/O APIC mapping unavailable: {}", error);
+                }
+            }
+        }
     }
 
     // Initialize kernel heap — map pages and set up the linked-list allocator

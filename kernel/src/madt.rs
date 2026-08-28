@@ -5,8 +5,8 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuEntry {
-    pub processor_uid: u8,
-    pub apic_id: u8,
+    pub processor_uid: u32,
+    pub apic_id: u32,
     pub enabled: bool,
 }
 
@@ -19,7 +19,7 @@ pub struct IoApicEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MadtInfo {
-    pub local_apic_address: u32,
+    pub local_apic_address: u64,
     pub cpus: [Option<CpuEntry>; 32],
     pub cpu_count: usize,
     pub io_apics: [Option<IoApicEntry>; 8],
@@ -29,8 +29,9 @@ pub struct MadtInfo {
 impl MadtInfo {
     /// Number of logical processors marked enabled by firmware.
     pub fn enabled_cpu_count(&self) -> usize {
-        self.cpus[..self.cpu_count]
+        self.cpus
             .iter()
+            .take(self.cpu_count)
             .flatten()
             .filter(|cpu| cpu.enabled)
             .count()
@@ -60,7 +61,7 @@ pub fn parse(table: &[u8]) -> Result<MadtInfo, ParseError> {
         return Err(ParseError::InvalidChecksum);
     }
     let mut info = MadtInfo {
-        local_apic_address: u32::from_le_bytes(table[36..40].try_into().unwrap()),
+        local_apic_address: u32::from_le_bytes(table[36..40].try_into().unwrap()) as u64,
         cpus: [None; 32],
         cpu_count: 0,
         io_apics: [None; 8],
@@ -77,26 +78,72 @@ pub fn parse(table: &[u8]) -> Result<MadtInfo, ParseError> {
             return Err(ParseError::InvalidLength);
         }
         match kind {
-            0 if entry_len >= 8 && info.cpu_count < info.cpus.len() => {
-                info.cpus[info.cpu_count] = Some(CpuEntry {
-                    processor_uid: table[offset + 2],
-                    apic_id: table[offset + 3],
-                    enabled: u32::from_le_bytes(table[offset + 4..offset + 8].try_into().unwrap())
-                        & 1
-                        != 0,
-                });
-                info.cpu_count += 1;
+            // Processor Local APIC (ACPI 6.5, MADT type 0).
+            0 => {
+                if entry_len < 8 {
+                    return Err(ParseError::InvalidLength);
+                }
+                if info.cpu_count < info.cpus.len() {
+                    info.cpus[info.cpu_count] = Some(CpuEntry {
+                        processor_uid: table[offset + 2] as u32,
+                        apic_id: table[offset + 3] as u32,
+                        enabled: u32::from_le_bytes(
+                            table[offset + 4..offset + 8].try_into().unwrap(),
+                        ) & 1
+                            != 0,
+                    });
+                    info.cpu_count += 1;
+                }
             }
-            1 if entry_len >= 12 && info.io_apic_count < info.io_apics.len() => {
-                info.io_apics[info.io_apic_count] = Some(IoApicEntry {
-                    id: table[offset + 2],
-                    address: u32::from_le_bytes(table[offset + 4..offset + 8].try_into().unwrap()),
-                    global_irq_base: u32::from_le_bytes(
-                        table[offset + 8..offset + 12].try_into().unwrap(),
-                    ),
-                });
-                info.io_apic_count += 1;
+            // I/O APIC (ACPI 6.5, MADT type 1).
+            1 => {
+                if entry_len < 12 {
+                    return Err(ParseError::InvalidLength);
+                }
+                if info.io_apic_count < info.io_apics.len() {
+                    info.io_apics[info.io_apic_count] = Some(IoApicEntry {
+                        id: table[offset + 2],
+                        address: u32::from_le_bytes(
+                            table[offset + 4..offset + 8].try_into().unwrap(),
+                        ),
+                        global_irq_base: u32::from_le_bytes(
+                            table[offset + 8..offset + 12].try_into().unwrap(),
+                        ),
+                    });
+                    info.io_apic_count += 1;
+                }
             }
+            // Local APIC Address Override (ACPI 6.5, MADT type 5).
+            5 => {
+                if entry_len < 12 {
+                    return Err(ParseError::InvalidLength);
+                }
+                info.local_apic_address =
+                    u64::from_le_bytes(table[offset + 4..offset + 12].try_into().unwrap());
+            }
+            // Processor Local x2APIC (ACPI 6.5, MADT type 9).
+            9 => {
+                if entry_len < 16 {
+                    return Err(ParseError::InvalidLength);
+                }
+                if info.cpu_count < info.cpus.len() {
+                    info.cpus[info.cpu_count] = Some(CpuEntry {
+                        apic_id: u32::from_le_bytes(
+                            table[offset + 4..offset + 8].try_into().unwrap(),
+                        ),
+                        processor_uid: u32::from_le_bytes(
+                            table[offset + 12..offset + 16].try_into().unwrap(),
+                        ),
+                        enabled: u32::from_le_bytes(
+                            table[offset + 8..offset + 12].try_into().unwrap(),
+                        ) & 1
+                            != 0,
+                    });
+                    info.cpu_count += 1;
+                }
+            }
+            // Unknown entries are intentionally skipped for forward
+            // compatibility; their length was validated above.
             _ => {}
         }
         offset += entry_len;
@@ -150,5 +197,29 @@ mod tests {
         let mut t = table(&[]);
         t[..4].copy_from_slice(b"FACP");
         assert_eq!(parse(&t), Err(ParseError::InvalidSignature));
+    }
+
+    #[test]
+    fn parses_lapic_address_override_and_x2apic_cpu() {
+        let mut entries = vec![5, 12, 0, 0];
+        entries.extend_from_slice(&0x1_0000_0000u64.to_le_bytes());
+        entries.extend_from_slice(&[
+            9, 16, 0, 0, // type, length, reserved
+            0x34, 0x12, 0, 0, // x2APIC ID
+            1, 0, 0, 0, // enabled
+            7, 0, 0, 0, // processor UID
+        ]);
+        let info = parse(&table(&entries)).unwrap();
+        assert_eq!(info.local_apic_address, 0x1_0000_0000);
+        assert_eq!(info.cpu_count, 1);
+        assert_eq!(info.cpus[0].unwrap().processor_uid, 7);
+        assert_eq!(info.cpus[0].unwrap().apic_id, 0x1234);
+        assert_eq!(info.enabled_cpu_count(), 1);
+    }
+
+    #[test]
+    fn rejects_short_known_entry() {
+        assert_eq!(parse(&table(&[1, 2])), Err(ParseError::InvalidLength));
+        assert_eq!(parse(&table(&[9, 2])), Err(ParseError::InvalidLength));
     }
 }

@@ -10,6 +10,8 @@ All notable changes to Brane OS are documented here. The project follows
 - Portable UEFI ISO packaging with BIOS and UEFI disk artifacts.
 - Automated ISO boot verification with QEMU, OVMF and TCG.
 - Tag-driven GitHub release workflow with SHA-256 verification.
+- MADT support for x2APIC CPUs and Local APIC address overrides.
+- Safe Local APIC/I/O APIC MMIO windows with initial boot-time page mapping.
 
 ## 0.1.0 — Foundation
 
@@ -24,6 +26,7 @@ All notable changes to Brane OS are documented here. The project follows
 
 ### Known limitations
 
-- Single-core execution; SMP/APIC support is planned for Phase 12.
+- Single-core execution; SMP multicore and APIC IRQ routing are planned for Phase 12
+  (APIC discovery and MMIO mapping are available incrementally).
 - USB xHCI and persistent block storage are planned for Phase 13.
 - FAT32 support currently provides structural parsing rather than full reads.

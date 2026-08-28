@@ -472,7 +472,7 @@ fn cmd_acpi() {
     use core::fmt::Write;
 
     let info = acpi::info();
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 384];
     let mut cursor = WriteBuf::new(&mut buf);
     let _ = writeln!(cursor, "ACPI initialized: {}", info.initialized);
     let _ = writeln!(
@@ -485,6 +485,18 @@ fn cmd_acpi() {
         "S3 wake trampoline: {} ({:?})",
         info.wake_trampoline_ready, info.wake_trampoline_phys
     );
+    if let Some(apic) = info.apic {
+        let _ = writeln!(
+            cursor,
+            "APIC topology: LAPIC=0x{:X}, CPUs={}, I/O APICs={}, first I/O APIC={:?}",
+            apic.local_apic_address,
+            apic.enabled_cpu_count,
+            apic.io_apic_count,
+            apic.first_io_apic_address
+        );
+    } else {
+        let _ = writeln!(cursor, "APIC topology: unavailable");
+    }
     tty::tty_print(cursor.as_str());
 }
 

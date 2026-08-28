@@ -32,6 +32,7 @@ const FADT_X_PM1A_CNT_END: usize = 184;
 const FADT_X_PM1B_CNT_END: usize = 196;
 
 const FACS_MIN_LEN: usize = 24;
+const MADT_MAX_LEN: usize = 4096;
 #[cfg(target_os = "none")]
 const FACS_FIRMWARE_WAKING_VECTOR_OFFSET: usize = 12;
 #[cfg(target_os = "none")]
@@ -152,6 +153,7 @@ struct SleepType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcpiInfo {
     pub initialized: bool,
+    pub apic: Option<crate::apic::ApicTopology>,
     pub s1_supported: bool,
     pub s3_supported: bool,
     pub s4_supported: bool,
@@ -175,6 +177,7 @@ pub enum SuspendError {
 #[cfg_attr(not(target_os = "none"), allow(dead_code))]
 struct AcpiState {
     initialized: bool,
+    apic: Option<crate::apic::ApicTopology>,
     pm1a_evt_blk: Option<u64>,
     pm1b_evt_blk: Option<u64>,
     pm1a_cnt_blk: Option<u64>,
@@ -193,6 +196,7 @@ struct AcpiState {
 
 static ACPI_STATE: Mutex<AcpiState> = Mutex::new(AcpiState {
     initialized: false,
+    apic: None,
     pm1a_evt_blk: None,
     pm1b_evt_blk: None,
     pm1a_cnt_blk: None,
@@ -315,22 +319,33 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
             )
         })?
     });
+    let mut apic_topology = None;
     if let Some(madt_addr) = madt_addr {
-        let madt_virt = physical_memory_offset + madt_addr;
-        let madt_len = unsafe { core::ptr::read_unaligned((madt_virt + 4) as *const u32) } as usize;
-        let madt_bytes = unsafe { core::slice::from_raw_parts(madt_virt as *const u8, madt_len) };
-        match crate::madt::parse(madt_bytes) {
-            Ok(info) => {
-                crate::serial_println!(
-                    "[acpi] MADT: {} enabled CPU(s), {} I/O APIC(s), LAPIC=0x{:X}",
-                    info.enabled_cpu_count(),
-                    info.io_apic_count,
-                    info.local_apic_address
-                );
+        if let Some(madt_virt) = physical_memory_offset.checked_add(madt_addr) {
+            let madt_len =
+                unsafe { core::ptr::read_unaligned((madt_virt + 4) as *const u32) } as usize;
+            if !(44..=MADT_MAX_LEN).contains(&madt_len) {
+                crate::serial_println!("[acpi] MADT invalid: length outside supported bounds");
+            } else {
+                let madt_bytes =
+                    unsafe { core::slice::from_raw_parts(madt_virt as *const u8, madt_len) };
+                match crate::madt::parse(madt_bytes) {
+                    Ok(info) => {
+                        apic_topology = Some(crate::apic::ApicTopology::from_madt(&info));
+                        crate::serial_println!(
+                            "[acpi] MADT: {} enabled CPU(s), {} I/O APIC(s), LAPIC=0x{:X}",
+                            info.enabled_cpu_count(),
+                            info.io_apic_count,
+                            info.local_apic_address
+                        );
+                    }
+                    Err(error) => {
+                        crate::serial_println!("[acpi] MADT invalid: {:?}", error);
+                    }
+                }
             }
-            Err(error) => {
-                crate::serial_println!("[acpi] MADT invalid: {:?}", error);
-            }
+        } else {
+            crate::serial_println!("[acpi] MADT address overflows physical mapping");
         }
     } else {
         crate::serial_println!("[acpi] MADT (APIC) table not found; SMP disabled.");
@@ -353,6 +368,7 @@ pub fn init(rsdp_phys_addr: u64, physical_memory_offset: u64) {
     let mut state = ACPI_STATE.lock();
     *state = AcpiState {
         initialized: true,
+        apic: apic_topology,
         pm1a_evt_blk: nonzero(pm1a_evt),
         pm1b_evt_blk: nonzero(pm1b_evt),
         pm1a_cnt_blk: nonzero(pm1a_cnt),
@@ -849,6 +865,7 @@ pub fn info() -> AcpiInfo {
     let state = ACPI_STATE.lock();
     AcpiInfo {
         initialized: state.initialized,
+        apic: state.apic,
         s1_supported: state.sleep_types[1].is_some(),
         s3_supported: state.sleep_types[3].is_some(),
         s4_supported: state.sleep_types[4].is_some(),
