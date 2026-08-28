@@ -1223,8 +1223,11 @@ mod stress_tests {
     use super::DeterministicRng;
     use crate::ipc::{IpcManager, IpcMessage, MessageType};
     use crate::memory::frame_allocator::{BitmapFrameAllocator, FRAME_SIZE};
+    use crate::sched::{DispatchResult, MultiCoreScheduler, TaskId};
     use crate::syscall::{SyscallError, SyscallResult};
+    use std::format;
     use std::string::String;
+    use std::sync::{Arc, Barrier, Mutex};
     use std::vec::Vec;
 
     const MODEL_FRAMES: usize = 1024;
@@ -1354,6 +1357,81 @@ mod stress_tests {
                 expected_delivered,
                 CYCLES as u64
             )
+        );
+    }
+
+    #[test]
+    fn stress_multicore_dispatch_preserves_task_ownership() {
+        const CPU_COUNT: usize = 4;
+        const TASK_COUNT: TaskId = 32;
+        const ROUNDS: usize = 2_000;
+
+        let scheduler = Arc::new(Mutex::new(MultiCoreScheduler::new()));
+        {
+            let mut scheduler = scheduler.lock().expect("scheduler setup lock");
+            assert_eq!(scheduler.configure(CPU_COUNT), CPU_COUNT);
+            for task_id in 1..=TASK_COUNT {
+                scheduler
+                    .enqueue_on_cpu(0, task_id)
+                    .expect("affinity enqueue");
+            }
+        }
+
+        let barrier = Arc::new(Barrier::new(CPU_COUNT));
+        let mut workers = Vec::new();
+        for cpu in 0..CPU_COUNT {
+            let scheduler = Arc::clone(&scheduler);
+            let barrier = Arc::clone(&barrier);
+            workers.push(
+                std::thread::Builder::new()
+                    .name(format!("smp-dispatch-{cpu}"))
+                    .stack_size(256 * 1024)
+                    .spawn(move || {
+                        barrier.wait();
+                        for _ in 0..ROUNDS {
+                            let mut scheduler = scheduler.lock().expect("scheduler worker lock");
+                            match scheduler.dispatch(cpu) {
+                                DispatchResult::Dispatched(_) | DispatchResult::Stole(_) => {
+                                    scheduler.complete(cpu).expect("complete quantum");
+                                }
+                                DispatchResult::Idle => {}
+                                result => panic!("unexpected dispatch result: {result:?}"),
+                            }
+
+                            let runtime = scheduler.runtime_snapshots();
+                            let owned = runtime
+                                .iter()
+                                .take(CPU_COUNT)
+                                .filter(|cpu| cpu.current.is_some())
+                                .count();
+                            let queued: usize = scheduler.loads().iter().take(CPU_COUNT).sum();
+                            assert_eq!(queued + owned, TASK_COUNT as usize);
+                        }
+                    })
+                    .expect("spawn SMP dispatch worker"),
+            );
+        }
+        for worker in workers {
+            worker.join().expect("SMP dispatch worker panicked");
+        }
+
+        let scheduler = scheduler.lock().expect("scheduler final lock");
+        let runtime = scheduler.runtime_snapshots();
+        assert!(runtime
+            .iter()
+            .take(CPU_COUNT)
+            .all(|cpu| cpu.current.is_none()));
+        let total_dispatches: u64 = runtime
+            .iter()
+            .take(CPU_COUNT)
+            .map(|cpu| cpu.dispatches)
+            .sum();
+        let total_steals: u64 = runtime.iter().take(CPU_COUNT).map(|cpu| cpu.steals).sum();
+        assert_eq!(total_dispatches, (CPU_COUNT * ROUNDS) as u64);
+        assert!(total_steals > 0, "idle CPUs should steal queued work");
+        assert_eq!(
+            scheduler.loads()[..CPU_COUNT].iter().sum::<usize>(),
+            TASK_COUNT as usize
         );
     }
 }

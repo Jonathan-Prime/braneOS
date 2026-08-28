@@ -234,7 +234,7 @@ físico y ejecución del gate final v1.0.
 | Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI + GDT/TSS/IDT/MSR xAPIC; dispatcher IPI acotado integrado |
 | Estado per-CPU | 🔄 | ALTA | GDT/TSS/IST, stacks, MSRs y contadores runtime por CPU; falta contexto aislado |
 | Scheduler multicore | 🔄 | ALTA | Run queues, menor carga, steal y dispatch/complete integrados; falta cambio de contexto |
-| Sincronización y stress SMP | 🔲 | ALTA | Spinlocks, atomics y pruebas de carrera |
+| Sincronización y stress SMP | 🔄 | ALTA | Spinlock de colas y stress concurrente host integrados; falta prueba sostenida en QEMU |
 
 **Criterio de salida:** QEMU arranca con al menos 4 vCPU, ejecuta tareas en
 múltiples cores y supera stress tests sin deadlocks ni corrupción.
@@ -248,9 +248,10 @@ incluyendo GDT/TSS/IST, IDT y MSRs de syscall por AP antes del ACK.
 El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
 `Failed`. Las run queues por CPU distribuyen y roban tareas de forma
 determinista. Una IPI dirigida a cada AP ejecuta y contabiliza un quantum de
-dispatch/complete, dejando evidencia `Multicore dispatch active`; quedan el
-cambio de contexto aislado por AP, la sincronización y la validación de
-hardware físico.
+dispatch/complete, dejando evidencia `Multicore dispatch active`. El stress
+host con cuatro workers verifica que las tareas no se pierdan ni se dupliquen;
+quedan la prueba sostenida en QEMU, el cambio de contexto aislado por AP y la
+validación de hardware físico.
 
 ---
 
@@ -299,7 +300,7 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 125 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Unit tests** | 127 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |

@@ -191,7 +191,7 @@ Jobs actuales:
 | Formatting | `cargo fmt --all -- --check` |
 | Clippy Lints | Kernel bare-metal + runner host con `-D warnings` |
 | Unit Tests | `cargo test -p brane_os_kernel --lib` |
-| Stress and Fuzz Tests | `make stress-test` |
+| Stress and Fuzz Tests | `make stress-test` (incluye dispatcher SMP concurrente) |
 | Release Artifact (ISO) | `make iso-test VERSION=ci` |
 | Boot Test (QEMU) | `python3 tests/boot/test_boot.py` |
 | ACPI S3 Test (QEMU/QMP) | `make acpi-test` |

@@ -305,7 +305,8 @@ de registros por AP queda reservado para la siguiente iteración.
 Planificador de tareas con soporte para prioridades y quantum configurable.
 `Scheduler` conserva el cambio de contexto cooperativo del BSP; `MultiCoreScheduler`
 mantiene run queues fijas por CPU, asigna nuevas tareas a la cola menos cargada y
-permite que un CPU ocioso robe una tarea de su vecino más cargado. Cada CPU
+permite que un CPU ocioso robe una tarea de su vecino más cargado. La API de
+afinidad permite fijar tareas durante el arranque y las pruebas. Cada CPU
 mantiene un estado runtime y el dispatcher retira la tarea mientras corre para
 evitar dobles ejecuciones; `complete` la devuelve a la cola al terminar el
 quantum. La integración del cambio de contexto de registros por AP queda

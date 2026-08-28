@@ -140,11 +140,12 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Formatting | Activo | `cargo fmt --all -- --check` |
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
-| **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator e IPC) |
+| **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator, IPC y dispatcher SMP concurrente) |
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **SMP/AP startup test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, INIT/SIPI, GDT/TSS/IDT/MSR, IPI probe y shell) |
 | **SMP run-queue + dispatcher model (host)** | **Activo** | `cargo test -p brane_os_kernel --lib sched::multicore_tests` (balanceo, steal, dispatch/complete y protección de tareas en ejecución) |
+| **SMP dispatcher stress (host)** | **Activo** | `cargo test -p brane_os_kernel --lib stress_multicore_dispatch_preserves_task_ownership` (4 workers, 2.000 rondas, ownership y stealing) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **ACPI MADT/APIC/SMP** | **Activo** | `cargo test -p brane_os_kernel --lib madt` y `cargo test -p brane_os_kernel --lib smp` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing, BSP y fallback PIC) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |

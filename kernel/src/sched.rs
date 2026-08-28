@@ -228,10 +228,39 @@ impl MultiCoreScheduler {
         Ok(selected)
     }
 
+    /// Enqueue a task on a specific active CPU.
+    ///
+    /// This is used for affinity-aware startup and deterministic stress
+    /// tests. Ownership checks are identical to [`Self::enqueue`].
+    pub fn enqueue_on_cpu(&mut self, cpu: usize, task_id: TaskId) -> Result<(), RunQueueError> {
+        if cpu >= self.cpu_count {
+            return Err(RunQueueError::InvalidCpu);
+        }
+        if task_id == 0 {
+            return Err(RunQueueError::InvalidTask);
+        }
+        if self.queues[..self.cpu_count]
+            .iter()
+            .any(|queue| queue.contains(task_id))
+            || self.runtime[..self.cpu_count]
+                .iter()
+                .any(|runtime| runtime.current == Some(task_id))
+        {
+            return Err(RunQueueError::Duplicate);
+        }
+        self.queues[cpu].enqueue(task_id)
+    }
+
     /// Remove a task from a CPU's queue, typically when it blocks or exits.
     pub fn dequeue(&mut self, cpu: usize, task_id: TaskId) -> Result<bool, RunQueueError> {
         if cpu >= self.cpu_count {
             return Err(RunQueueError::InvalidCpu);
+        }
+        if self.runtime[cpu].current == Some(task_id) {
+            // A blocked or exited task must relinquish its runtime slot
+            // without being re-enqueued by `complete`.
+            self.runtime[cpu].current = None;
+            return Ok(true);
         }
         Ok(self.queues[cpu].remove(task_id))
     }
@@ -870,6 +899,11 @@ mod multicore_tests {
         assert_eq!(scheduler.complete(0), Ok(Some(1)));
         assert_eq!(scheduler.runtime(0).unwrap().current, None);
         assert_eq!(scheduler.queue_load(0), Some(1));
+
+        assert_eq!(scheduler.dispatch(0), DispatchResult::Dispatched(1));
+        assert_eq!(scheduler.dequeue(0, 1), Ok(true));
+        assert_eq!(scheduler.complete(0), Ok(None));
+        assert_eq!(scheduler.queue_load(0), Some(0));
     }
 
     #[test]
@@ -887,5 +921,24 @@ mod multicore_tests {
         assert_eq!(runtime.steals, 1);
         assert_eq!(scheduler.complete(1), Ok(Some(1)));
         assert_eq!(scheduler.queue_load(1), Some(1));
+    }
+
+    #[test]
+    fn affinity_enqueue_rejects_invalid_cpu_and_duplicate_ownership() {
+        let mut scheduler = MultiCoreScheduler::new();
+        scheduler.configure(2);
+        assert_eq!(
+            scheduler.enqueue_on_cpu(2, 1),
+            Err(RunQueueError::InvalidCpu)
+        );
+        assert_eq!(scheduler.enqueue_on_cpu(0, 1), Ok(()));
+        assert_eq!(
+            scheduler.enqueue_on_cpu(1, 1),
+            Err(RunQueueError::Duplicate)
+        );
+        assert_eq!(
+            scheduler.enqueue_on_cpu(1, 0),
+            Err(RunQueueError::InvalidTask)
+        );
     }
 }
