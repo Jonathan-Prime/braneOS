@@ -30,8 +30,9 @@ misma selección y permite verificarla con el comando `acpi` (`mode=LAPIC/IOAPIC
 Cuando MADT contiene CPUs habilitadas también aparece `CPU boot plan ready` y la
 asignación del BSP. Con más de una vCPU, `AP startup complete` confirma cuántos
 APs respondieron al trampoline INIT/SIPI y terminaron su inicialización GDT/TSS/
-IDT/MSR; los que fallen quedan en `Failed` sin detener el BSP. Los APs todavía
-permanecen en idle con interrupciones desactivadas hasta integrar el scheduler.
+IDT/MSR; `AP interrupt check` confirma que cada AP responde a una IPI dirigida.
+Los que fallen quedan en `Failed` sin detener el BSP. Los APs todavía
+permanecen en idle sin tareas asignadas hasta integrar el scheduler.
 
 Para reproducirlo con cuatro vCPU: `make smp-test`.
 

@@ -18,6 +18,8 @@ use x86_64::structures::DescriptorTablePointer;
 use x86_64::{PhysAddr, VirtAddr};
 
 pub const MAX_CPUS: usize = 32;
+/// Fixed-delivery vector used by the BSP to verify AP interrupt readiness.
+pub const AP_INTERRUPT_PROBE_VECTOR: u8 = 0xF0;
 #[cfg(target_os = "none")]
 const LEGACY_LIMIT: u64 = 0x10_0000;
 const PAGE_SIZE: u64 = 4096;
@@ -27,6 +29,8 @@ const AP_START_TIMEOUT_SPINS: usize = 5_000_000;
 const AP_ACK_ONLINE: u32 = 1;
 #[cfg(target_os = "none")]
 const AP_ACK_FAILED: u32 = 2;
+#[cfg(target_os = "none")]
+const AP_INTERRUPT_TIMEOUT_SPINS: usize = 2_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -96,6 +100,13 @@ impl ApTrampoline {
 pub struct ApStartupReport {
     pub attempted: usize,
     pub online: usize,
+    pub failed: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ApInterruptReport {
+    pub attempted: usize,
+    pub responsive: usize,
     pub failed: usize,
 }
 
@@ -191,6 +202,17 @@ impl CpuBootPlan {
         Ok(index)
     }
 
+    /// Mark an AP that was online but stopped responding to its health probe.
+    pub fn mark_unresponsive(&mut self, apic_id: u32) -> Result<usize, CpuPlanError> {
+        let index = self.find_enabled(apic_id)?;
+        let cpu = self.cpus[index].as_mut().unwrap();
+        if cpu.lifecycle != CpuLifecycle::Online {
+            return Err(CpuPlanError::InvalidState);
+        }
+        cpu.lifecycle = CpuLifecycle::Failed;
+        Ok(index)
+    }
+
     pub fn online_cpu_count(&self) -> usize {
         self.cpus
             .iter()
@@ -237,6 +259,10 @@ static mut AP_STACKS: [ApStack; MAX_CPUS] = [ApStack([0; 16 * 1024]); MAX_CPUS];
 #[cfg(target_os = "none")]
 static AP_START_ACK: [core::sync::atomic::AtomicU32; MAX_CPUS] =
     [const { core::sync::atomic::AtomicU32::new(0) }; MAX_CPUS];
+
+#[cfg(target_os = "none")]
+static AP_INTERRUPT_ACK: [core::sync::atomic::AtomicU32; 256] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; 256];
 
 #[cfg(target_os = "none")]
 unsafe extern "C" {
@@ -415,6 +441,56 @@ pub fn start_application_processors(
     Ok(report)
 }
 
+/// Send one fixed IPI to every online AP and wait for its shared IDT handler
+/// to acknowledge it. A missing response demotes that AP to `Failed` without
+/// affecting the BSP or the other processors.
+#[cfg(target_os = "none")]
+pub fn verify_application_processors(
+    local_apic: crate::apic::LocalApic,
+    plan: &mut CpuBootPlan,
+) -> ApInterruptReport {
+    let mut report = ApInterruptReport::default();
+    for slot in 0..plan.cpu_count {
+        let Some(cpu) = plan.cpus[slot] else { continue };
+        if !cpu.enabled || Some(slot) == plan.bsp_index || cpu.lifecycle != CpuLifecycle::Online {
+            continue;
+        }
+        if cpu.apic_id > u8::MAX as u32 {
+            continue;
+        }
+        report.attempted += 1;
+        let ack = &AP_INTERRUPT_ACK[cpu.apic_id as usize];
+        ack.store(0, core::sync::atomic::Ordering::Release);
+        let delivered =
+            unsafe { local_apic.send_fixed_ipi(cpu.apic_id as u8, AP_INTERRUPT_PROBE_VECTOR) };
+        let mut responsive = false;
+        if delivered {
+            for _ in 0..AP_INTERRUPT_TIMEOUT_SPINS {
+                if ack.load(core::sync::atomic::Ordering::Acquire) != 0 {
+                    responsive = true;
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+        }
+        if responsive {
+            report.responsive += 1;
+        } else {
+            let _ = plan.mark_unresponsive(cpu.apic_id);
+            report.failed += 1;
+        }
+    }
+    report
+}
+
+/// Record an interrupt probe from the AP currently executing the handler.
+#[cfg(target_os = "none")]
+pub fn acknowledge_interrupt_probe() {
+    if let Some(apic_id) = crate::apic::current_local_apic_id() {
+        AP_INTERRUPT_ACK[apic_id as usize].store(1, core::sync::atomic::Ordering::Release);
+    }
+}
+
 #[cfg(target_os = "none")]
 extern "C" fn ap_entry(
     _apic_id: u32,
@@ -426,10 +502,12 @@ extern "C" fn ap_entry(
     let initialized = unsafe {
         crate::gdt::init_ap(cpu_slot as usize).is_ok()
             && crate::usermode::init_syscall_msrs_for_cpu(cpu_slot as usize)
+            && crate::apic::enable_current_local_apic()
     };
     if initialized {
         unsafe {
             x86_64::instructions::tables::lidt(&*idt);
+            x86_64::instructions::interrupts::enable();
             (*ready).store(AP_ACK_ONLINE, core::sync::atomic::Ordering::Release);
         }
     } else {
@@ -580,6 +658,17 @@ mod tests {
         assert_eq!(plan.mark_failed(7), Err(CpuPlanError::InvalidState));
         assert_eq!(plan.assign_bsp(2), Ok(0));
         assert_eq!(plan.assign_bsp(7), Err(CpuPlanError::BspAlreadyAssigned));
+    }
+
+    #[test]
+    fn demotes_unresponsive_online_ap() {
+        let mut plan = CpuBootPlan::from_madt(&madt(&[(0, 2, true), (1, 7, true)])).unwrap();
+        assert_eq!(plan.assign_bsp(2), Ok(0));
+        assert_eq!(plan.mark_starting(7), Ok(1));
+        assert_eq!(plan.mark_online(7), Ok(1));
+        assert_eq!(plan.mark_unresponsive(7), Ok(1));
+        assert_eq!(plan.cpus[1].unwrap().lifecycle, CpuLifecycle::Failed);
+        assert_eq!(plan.mark_unresponsive(7), Err(CpuPlanError::InvalidState));
     }
 
     #[test]

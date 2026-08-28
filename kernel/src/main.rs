@@ -249,12 +249,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                                             &mut plan,
                                         ) {
                                             Ok(report) => {
+                                                let interrupt_report =
+                                                    smp::verify_application_processors(
+                                                        local_apic, &mut plan,
+                                                    );
                                                 acpi::set_smp_plan(plan);
                                                 serial_println!(
                                                     "[smp] AP startup complete: attempted={}, online={}, failed={}",
                                                     report.attempted,
                                                     report.online,
                                                     report.failed,
+                                                );
+                                                serial_println!(
+                                                    "[smp] AP interrupt check: attempted={}, responsive={}, failed={}",
+                                                    interrupt_report.attempted,
+                                                    interrupt_report.responsive,
+                                                    interrupt_report.failed,
                                                 );
                                             }
                                             Err(error) => {

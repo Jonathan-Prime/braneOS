@@ -293,7 +293,8 @@ reserva una página baja, copia un trampoline real-mode que restaura CR0/CR3/CR4
 EFER, asigna un stack estático por AP y envía INIT + doble SIPI con timeout. Cada
 AP confirmado carga su GDT/TSS/IST, el IDT compartido y sus MSR de syscall antes
 de publicar el ACK; después queda en un bucle seguro con interrupciones
-desactivadas hasta que exista despacho de interrupciones y scheduler multicore.
+habilitadas, pero sin tareas asignadas, hasta que exista despacho de
+interrupciones y scheduler multicore.
 
 ---
 

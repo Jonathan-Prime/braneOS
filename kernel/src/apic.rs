@@ -110,6 +110,43 @@ impl LocalApic {
         self.write(LOCAL_APIC_EOI, 0);
     }
 
+    #[cfg(target_os = "none")]
+    unsafe fn wait_for_ipi_delivery(self) -> bool {
+        const DELIVERY_STATUS: u32 = 1 << 12;
+        const WAIT_SPINS: usize = 1_000_000;
+
+        for _ in 0..WAIT_SPINS {
+            if self.read(LOCAL_APIC_ICR_LOW) & DELIVERY_STATUS == 0 {
+                return true;
+            }
+            core::hint::spin_loop();
+        }
+        false
+    }
+
+    #[cfg(target_os = "none")]
+    unsafe fn send_ipi(self, destination: u8, low: u32) -> bool {
+        if !self.wait_for_ipi_delivery() {
+            return false;
+        }
+        self.write(LOCAL_APIC_ICR_HIGH, (destination as u32) << 24);
+        self.write(LOCAL_APIC_ICR_LOW, low);
+        self.wait_for_ipi_delivery()
+    }
+
+    /// Send a fixed-delivery IPI to one xAPIC destination.
+    ///
+    /// # Safety
+    /// The Local APIC MMIO page must belong to the calling CPU and the target
+    /// must have installed an IDT entry for `vector`.
+    #[cfg(target_os = "none")]
+    pub unsafe fn send_fixed_ipi(self, destination: u8, vector: u8) -> bool {
+        if vector < 32 {
+            return false;
+        }
+        self.send_ipi(destination, vector as u32)
+    }
+
     /// Send the architected INIT + double-SIPI sequence to one xAPIC target.
     /// The bounded delivery-status waits prevent a wedged APIC from hanging
     /// the bootstrap CPU indefinitely. The caller remains responsible for
@@ -121,47 +158,30 @@ impl LocalApic {
     /// 4 KiB real-mode trampoline below 1 MiB.
     #[cfg(target_os = "none")]
     pub unsafe fn send_init_sipi(self, destination: u8, vector: u8) -> bool {
-        const DELIVERY_STATUS: u32 = 1 << 12;
         const LEVEL_ASSERT: u32 = 1 << 14;
         const TRIGGER_LEVEL: u32 = 1 << 15;
         const DELIVERY_INIT: u32 = 5 << 8;
         const DELIVERY_STARTUP: u32 = 6 << 8;
-        const WAIT_SPINS: usize = 1_000_000;
 
-        let wait_delivery = || {
-            for _ in 0..WAIT_SPINS {
-                if self.read(LOCAL_APIC_ICR_LOW) & DELIVERY_STATUS == 0 {
-                    return true;
-                }
-                core::hint::spin_loop();
-            }
-            false
-        };
-        let write_ipi = |low: u32| {
-            self.write(LOCAL_APIC_ICR_HIGH, (destination as u32) << 24);
-            self.write(LOCAL_APIC_ICR_LOW, low);
-            wait_delivery()
-        };
-
-        if !write_ipi(DELIVERY_INIT | LEVEL_ASSERT | TRIGGER_LEVEL) {
+        if !self.send_ipi(destination, DELIVERY_INIT | LEVEL_ASSERT | TRIGGER_LEVEL) {
             return false;
         }
         for _ in 0..10_000 {
             core::hint::spin_loop();
         }
-        if !write_ipi(DELIVERY_INIT | TRIGGER_LEVEL) {
+        if !self.send_ipi(destination, DELIVERY_INIT | TRIGGER_LEVEL) {
             return false;
         }
         for _ in 0..10_000 {
             core::hint::spin_loop();
         }
-        if !write_ipi(DELIVERY_STARTUP | vector as u32) {
+        if !self.send_ipi(destination, DELIVERY_STARTUP | vector as u32) {
             return false;
         }
         for _ in 0..10_000 {
             core::hint::spin_loop();
         }
-        write_ipi(DELIVERY_STARTUP | vector as u32)
+        self.send_ipi(destination, DELIVERY_STARTUP | vector as u32)
     }
 }
 
@@ -516,6 +536,40 @@ pub fn end_of_interrupt() -> bool {
 #[cfg(target_os = "none")]
 pub fn local_apic_handle() -> Option<LocalApic> {
     APIC_RUNTIME.lock().map(|runtime| runtime.local)
+}
+
+/// Enable the xAPIC MMIO interface and software spurious vector on the
+/// calling processor. This is used by APs after loading their IDT.
+#[cfg(target_os = "none")]
+pub fn enable_current_local_apic() -> bool {
+    let Some(local) = local_apic_handle() else {
+        return false;
+    };
+    let (current_frame, current_raw) = x86_64::registers::model_specific::ApicBase::read_raw();
+    if current_raw & IA32_APIC_BASE_X2APIC_ENABLE != 0 {
+        return false;
+    }
+    let desired_frame = PhysFrame::containing_address(PhysAddr::new(local.physical_base()));
+    let mut flags =
+        x86_64::registers::model_specific::ApicBaseFlags::from_bits_truncate(current_raw);
+    flags.remove(x86_64::registers::model_specific::ApicBaseFlags::X2APIC_ENABLE);
+    flags.insert(x86_64::registers::model_specific::ApicBaseFlags::LAPIC_ENABLE);
+    if current_frame.start_address() != desired_frame.start_address()
+        || current_raw & IA32_APIC_BASE_LAPIC_ENABLE == 0
+    {
+        unsafe {
+            x86_64::registers::model_specific::ApicBase::write(desired_frame, flags);
+        }
+    }
+    unsafe { local.enable(LOCAL_APIC_SPURIOUS_VECTOR) };
+    true
+}
+
+/// Read the xAPIC ID of the processor executing this function.
+#[cfg(target_os = "none")]
+pub fn current_local_apic_id() -> Option<u8> {
+    let local = local_apic_handle()?;
+    Some((unsafe { local.read(LOCAL_APIC_ID) } >> 24) as u8)
 }
 
 #[cfg(target_os = "none")]

@@ -246,9 +246,8 @@ al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al P
 y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU),
 incluyendo GDT/TSS/IST, IDT y MSRs de syscall por AP antes del ACK.
 El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
-`Failed`. Pendientes dispatcher de interrupciones, habilitación controlada de
-IF/APIC por CPU, scheduler multicore, sincronización y validación de hardware
-físico.
+`Failed`. Pendientes dispatch de tareas por interrupción, scheduler multicore,
+sincronización y validación de hardware físico.
 
 ---
 
@@ -297,7 +296,7 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 |---------|-------|
 | **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
 | **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 120 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Unit tests** | 121 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |

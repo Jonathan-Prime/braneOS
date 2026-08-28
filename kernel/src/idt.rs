@@ -45,6 +45,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     // --- Hardware Interrupts (PIC) ---
     idt[pic::InterruptIndex::Timer.as_u8()].set_handler_fn(timer_interrupt_handler);
     idt[pic::InterruptIndex::Keyboard.as_u8()].set_handler_fn(keyboard_interrupt_handler);
+    idt[brane_os_kernel::smp::AP_INTERRUPT_PROBE_VECTOR].set_handler_fn(ap_interrupt_probe_handler);
     idt[brane_os_kernel::apic::LOCAL_APIC_SPURIOUS_VECTOR]
         .set_handler_fn(spurious_interrupt_handler);
 
@@ -149,6 +150,14 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     crate::keyboard::handle_scancode(scancode);
 
     acknowledge_interrupt(pic::InterruptIndex::Keyboard.as_u8());
+}
+
+/// Targeted APIC probe used during SMP bring-up. The handler deliberately
+/// avoids the scheduler and only records liveness before sending the LAPIC
+/// EOI, keeping it safe while per-CPU runtime state is still being assembled.
+extern "x86-interrupt" fn ap_interrupt_probe_handler(_stack_frame: InterruptStackFrame) {
+    brane_os_kernel::smp::acknowledge_interrupt_probe();
+    let _ = brane_os_kernel::apic::end_of_interrupt();
 }
 
 fn acknowledge_interrupt(vector: u8) {
