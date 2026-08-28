@@ -33,6 +33,8 @@ El sistema entra en `brsh` y queda esperando entrada por TTY.
   falta cambiar el toolchain global con `rustup default nightly`.
 - Componentes Rust: `rust-src`, `llvm-tools-preview`, `rustfmt`, `clippy`.
 - QEMU con `qemu-system-x86_64`.
+- `xorriso` y OVMF para construir/probar la ISO UEFI (`brew install xorriso`
+  en macOS; `apt install xorriso ovmf` en Debian/Ubuntu).
 - `make`.
 
 ### Instalacion rapida en macOS
@@ -102,6 +104,15 @@ Build release + QEMU:
 make run-release
 ```
 
+Build y validación de la ISO UEFI:
+
+```bash
+make iso-test VERSION=dev
+```
+
+El target genera `dist/brane_os_v<VERSION>.iso`, su checksum SHA-256 y un
+archivo `.tar.gz`, y luego arranca la ISO con OVMF mediante `-cdrom`.
+
 ### Salida esperada
 
 En el log serial deberia aparecer:
@@ -126,6 +137,7 @@ Antes de abrir un PR, ejecute:
 cargo fmt --all -- --check
 make clippy
 make test-all
+make release-test VERSION=dev
 ```
 
 `make clippy` valida:
@@ -137,6 +149,9 @@ make test-all
 integration y E2E. Los targets QEMU comparten una imagen del kernel release —el
 ELF debug excede el timeout de carga del bootloader BIOS bajo TCG— y detectan el
 prompt `brane>` aunque no termine con salto de línea.
+
+`make release-test` valida además los artefactos versionados y arranca la ISO
+UEFI con OVMF.
 
 `make stress-test` usa semillas fijas para mutar los parsers FAT32, BDP y Brane
 Session, comparar el frame allocator con un modelo de referencia y saturar las
@@ -162,6 +177,7 @@ Jobs actuales:
 | Clippy Lints | Kernel bare-metal + runner host con `-D warnings` |
 | Unit Tests | `cargo test -p brane_os_kernel --lib` |
 | Stress and Fuzz Tests | `make stress-test` |
+| Release Artifact (ISO) | `make iso-test VERSION=ci` |
 | Boot Test (QEMU) | `python3 tests/boot/test_boot.py` |
 | ACPI S3 Test (QEMU/QMP) | `make acpi-test` |
 | Security Tests (QEMU) | `make security-test` |
@@ -175,8 +191,8 @@ Jobs actuales:
 Para pasar de ejecución de desarrollo en QEMU a release instalable todavía
 faltan:
 
-- publicar un artefacto versionado de la imagen booteable,
-- documentar los flags de QEMU para BIOS frente a UEFI,
+- publicar un artefacto versionado de la imagen booteable mediante tags,
+- completar la matriz BIOS frente a UEFI (la ISO actual usa UEFI El Torito),
 - ampliar la validación ACPI S3 a hardware físico adicional,
 - cerrar el proceso v1.0 con checksums y notas de versión.
 

@@ -5,13 +5,15 @@
 KERNEL_BIN     := target/x86_64-unknown-none/debug/brane_os_kernel
 KERNEL_RELEASE := target/x86_64-unknown-none/release/brane_os_kernel
 TEST_IMAGE     := target/brane_os-bios.img
+VERSION        ?= dev
+RELEASE_ISO    := dist/brane_os_v$(VERSION).iso
 BUILD_FLAGS    := -Z build-std=core,compiler_builtins,alloc \
                   -Z build-std-features=compiler-builtins-mem \
                   --target x86_64-unknown-none
 
 .PHONY: build build-release run run-release test fmt clippy \
         stress-test test-image boot-test acpi-test security-test integration-test e2e-test test-all \
-        docs iso release clean help
+        docs iso iso-test release-test release clean help
 
 # --- Build -------------------------------------------------------------------
 
@@ -88,9 +90,15 @@ docs: ## Generate API documentation into target/doc/
 
 # --- Release / Packaging -----------------------------------------------------
 
-iso: build-release ## Build booteable ISO (requires xorriso)
+iso: ## Build versioned bootable ISO + checksum + archive (VERSION=dev)
 	chmod +x tools/make_iso.sh
-	./tools/make_iso.sh
+	./tools/make_iso.sh $(VERSION)
+
+iso-test: iso ## Build and boot the ISO through QEMU/TCG
+	python3 tests/boot/test_boot.py --iso $(RELEASE_ISO)
+
+release-test: iso-test ## Validate release artifacts and UEFI boot catalog
+	python3 tests/release/test_release_artifacts.py --dist dist --version $(VERSION)
 
 release: iso ## Full release: ISO + SHA256 checksum + tar.gz archive
 	@echo ""

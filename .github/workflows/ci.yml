@@ -8,11 +8,12 @@
 #   3. Lints (clippy)
 #   4. Kernel unit tests
 #   5. Deterministic stress and mutation-fuzz tests
-#   6. Boot test — QEMU serial output verification (60 s timeout)
-#   7. ACPI S3 test — suspend, QMP wake and post-resume shell
-#   8. Security tests — capability denial and privilege escalation
-#   9. Integration tests — syscalls/services and capability broker
-#  10. E2E tests — shell readiness and complete boot sequence
+#   6. Release artifact — ISO packaging, checksum and CD boot
+#   7. Boot test — QEMU serial output verification (60 s timeout)
+#   8. ACPI S3 test — suspend, QMP wake and post-resume shell
+#   9. Security tests — capability denial and privilege escalation
+#  10. Integration tests — syscalls/services and capability broker
+#  11. E2E tests — shell readiness and complete boot sequence
 # ============================================================
 
 name: CI
@@ -169,6 +170,62 @@ jobs:
 
       - name: Run deterministic stress and fuzz suites
         run: make stress-test
+
+  # -----------------------------------------------------------------
+  # Release artifact — package ISO, verify checksum and boot from CD
+  # -----------------------------------------------------------------
+  release-artifact:
+    name: Release Artifact (ISO)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-03-11
+          components: rust-src, llvm-tools-preview
+          targets: x86_64-unknown-none
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Install QEMU and xorriso
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso
+
+      - name: Build and boot release ISO
+        env:
+          BOOT_TIMEOUT: "90"
+        run: make release-test VERSION=ci
+
+      - name: Verify SHA-256 checksum
+        working-directory: dist
+        run: sha256sum --check brane_os_vci.iso.sha256
+
+      - name: Upload release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: brane-os-release-candidate
+          path: |
+            dist/brane_os_vci.iso
+            dist/brane_os_vci.iso.sha256
+            dist/brane_os_vci-bios.img
+            dist/brane_os_vci-uefi.img
+            dist/brane_os_vci_release.tar.gz
+          if-no-files-found: error
 
   # -----------------------------------------------------------------
   # Boot Test — run Brane OS in QEMU and verify serial output

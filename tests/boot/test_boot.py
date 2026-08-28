@@ -25,6 +25,8 @@ import subprocess
 import sys
 import threading
 import time
+import shutil
+import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -59,6 +61,30 @@ FAIL_STRINGS = [
 ]
 
 QEMU_BIN = os.environ.get("QEMU_BIN", "qemu-system-x86_64")
+
+
+def find_ovmf() -> tuple[Path, Path] | None:
+    """Locate UEFI code and variable images on common installations."""
+    candidates = [
+        (os.environ.get("OVMF_CODE"), os.environ.get("OVMF_VARS")),
+        (
+            "/usr/local/opt/qemu/share/qemu/edk2-x86_64-code.fd",
+            "/usr/local/opt/qemu/share/qemu/edk2-i386-vars.fd",
+        ),
+        (
+            "/opt/homebrew/opt/qemu/share/qemu/edk2-x86_64-code.fd",
+            "/opt/homebrew/opt/qemu/share/qemu/edk2-i386-vars.fd",
+        ),
+        ("/usr/share/OVMF/OVMF_CODE.fd", "/usr/share/OVMF/OVMF_VARS.fd"),
+        ("/usr/share/edk2/x64/OVMF_CODE.fd", "/usr/share/edk2/ovmf_vars.fd"),
+    ]
+    for code_candidate, vars_candidate in candidates:
+        if code_candidate and vars_candidate:
+            code = Path(code_candidate)
+            variables = Path(vars_candidate)
+            if code.exists() and variables.exists():
+                return code, variables
+    return None
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -143,21 +169,39 @@ def build_disk_image(kernel_path: Path) -> Path:
 # QEMU runner
 # ---------------------------------------------------------------------------
 
-def run_qemu_test(img_path: Path, timeout: int) -> int:
+def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk") -> int:
     """
-    Launch QEMU with the given image, capture serial output,
+    Launch QEMU with the given disk image or ISO, capture serial output,
     and return 0 (pass), 1 (fail).
     """
     cmd = [
         QEMU_BIN,
         "-m", "256M",
-        "-drive", f"format=raw,file={img_path}",
+    ]
+    firmware_vars: Path | None = None
+    if media_type == "iso":
+        ovmf = find_ovmf()
+        if ovmf is None:
+            error("UEFI code/variables not found; set OVMF_CODE and OVMF_VARS or install OVMF.")
+            return 2
+        code, variables = ovmf
+        with tempfile.NamedTemporaryFile(prefix="brane-ovmf-vars-", suffix=".fd", delete=False) as copy:
+            firmware_vars = Path(copy.name)
+        shutil.copyfile(variables, firmware_vars)
+        cmd.extend([
+            "-drive", f"if=pflash,format=raw,readonly=on,file={code}",
+            "-drive", f"if=pflash,format=raw,file={firmware_vars}",
+            "-cdrom", str(media_path), "-boot", "d",
+        ])
+    else:
+        cmd.extend(["-drive", f"format=raw,file={media_path}"])
+    cmd.extend([
         "-serial", "stdio",
         "-nographic",         # no display window — pure serial I/O
         "-monitor", "none",
         "-no-reboot",         # exit on triple fault instead of rebooting
         "-accel", "tcg",      # software emulation — works in any CI/CD
-    ]
+    ])
     info(f"Launching QEMU (timeout={timeout}s):")
     info("  " + " ".join(cmd))
 
@@ -176,6 +220,8 @@ def run_qemu_test(img_path: Path, timeout: int) -> int:
         )
     except FileNotFoundError:
         error(f"{QEMU_BIN} not found. Install QEMU and ensure it is in PATH.")
+        if firmware_vars:
+            firmware_vars.unlink(missing_ok=True)
         return 2
 
     def reader():
@@ -239,6 +285,8 @@ def run_qemu_test(img_path: Path, timeout: int) -> int:
         proc.kill()
 
     t.join(timeout=3)
+    if firmware_vars:
+        firmware_vars.unlink(missing_ok=True)
 
     # ── Evaluate result ──────────────────────────────────────────────────
     print()
@@ -272,8 +320,11 @@ def parse_args() -> argparse.Namespace:
                    help=f"Seconds before giving up (default: {DEFAULT_TIMEOUT})")
     p.add_argument("--no-build", action="store_true",
                    help="Skip build step; use KERNEL_BIN_PATH env var or pre-existing image")
-    p.add_argument("--img", type=str, default=None,
-                   help="Path to existing .img file, skips build entirely")
+    media = p.add_mutually_exclusive_group()
+    media.add_argument("--img", type=str, default=None,
+                       help="Path to existing .img file, skips build entirely")
+    media.add_argument("--iso", type=str, default=None,
+                       help="Path to an existing bootable ISO, skips build entirely")
     return p.parse_args()
 
 
@@ -285,7 +336,14 @@ def main() -> None:
     info(f"Brane OS Boot Test — timeout={args.timeout}s")
     info(f"Repo root: {REPO_ROOT}")
 
-    if args.img:
+    media_type = "disk"
+    if args.iso:
+        img_path = Path(args.iso)
+        media_type = "iso"
+        if not img_path.exists():
+            error(f"ISO not found: {img_path}")
+            sys.exit(2)
+    elif args.img:
         img_path = Path(args.img)
         if not img_path.exists():
             error(f"Image not found: {img_path}")
@@ -297,7 +355,7 @@ def main() -> None:
         kernel_path = build_kernel()
         img_path = build_disk_image(kernel_path)
 
-    rc = run_qemu_test(img_path, args.timeout)
+    rc = run_qemu_test(img_path, args.timeout, media_type)
 
     elapsed = time.monotonic() - start
     info(f"Total elapsed: {elapsed:.1f}s")

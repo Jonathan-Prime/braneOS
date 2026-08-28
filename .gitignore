@@ -9,6 +9,7 @@
 *.img
 *.iso
 *.bin
+/dist/
 
 # Editor / IDE
 .vscode/

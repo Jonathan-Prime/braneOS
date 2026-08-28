@@ -29,6 +29,7 @@ pub mod fat32;
 pub mod framebuffer;
 pub mod gdt;
 pub mod ipc;
+pub mod madt;
 pub mod memory;
 pub mod module_loader;
 pub mod net;

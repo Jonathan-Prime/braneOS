@@ -1,0 +1,59 @@
+# Brane OS release guide
+
+## Build a local release candidate
+
+Requirements: pinned Rust nightly, QEMU, Python 3, `xorriso` and OVMF.
+
+```bash
+make release-test VERSION=1.0.0-rc1
+```
+
+The command builds the kernel, boots the ISO with OVMF and validates the
+artifact set. It creates these files in `dist/`:
+
+- `brane_os_v<VERSION>.iso` — UEFI El Torito ISO.
+- `brane_os_v<VERSION>-bios.img` — standalone BIOS disk image.
+- `brane_os_v<VERSION>-uefi.img` — standalone UEFI disk image.
+- `brane_os_v<VERSION>.iso.sha256` — ISO checksum.
+- `brane_os_v<VERSION>_release.tar.gz` — complete release archive.
+
+## Verify the checksum
+
+Linux:
+
+```bash
+cd dist
+sha256sum --check brane_os_v1.0.0.iso.sha256
+```
+
+macOS:
+
+```bash
+cd dist
+shasum -a 256 -c brane_os_v1.0.0.iso.sha256
+```
+
+## Test manually in QEMU
+
+The recommended automated command is `make iso-test`. It locates OVMF through
+`OVMF_CODE` and `OVMF_VARS` or through common Linux/Homebrew paths.
+
+The standalone BIOS image can be tested with:
+
+```bash
+qemu-system-x86_64 \
+  -m 256M \
+  -drive format=raw,file=dist/brane_os_v1.0.0-bios.img \
+  -serial stdio -nographic -accel tcg
+```
+
+## Publish from a tag
+
+1. Update `CHANGELOG.md` and replace the Unreleased heading with the version.
+2. Ensure the main CI workflow is green.
+3. Create and push a signed or annotated `v<MAJOR>.<MINOR>.<PATCH>` tag.
+4. The Release workflow builds and boot-tests all artifacts, verifies the
+   checksum, and creates the corresponding GitHub Release.
+
+Manual `workflow_dispatch` runs validate and upload workflow artifacts but do
+not publish a GitHub Release.

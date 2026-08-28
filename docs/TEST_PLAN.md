@@ -141,6 +141,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
 | **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator e IPC) |
+| **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **Security tests (QEMU)** | **Activo** | `make security-test` (capability denial + privilege escalation) |
@@ -180,6 +181,8 @@ La validación local equivalente recomendada está documentada en
 |--------|-------------|
 | `make test` | Unit tests en host (sin QEMU) |
 | `make stress-test` | Mutation-fuzz de parsers + stress de allocator e IPC |
+| `make iso-test` | Construye y arranca ISO UEFI con OVMF |
+| `make release-test` | Valida ISO, checksum, archive y catálogo El Torito |
 | `make test-image` | Compila una imagen compartida con el kernel release |
 | `make boot-test` | Boot test del kernel release en QEMU/TCG (60 s) |
 | `make acpi-test` | Suspensión/reanudación ACPI S3 en QEMU/QMP (120 s) |

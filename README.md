@@ -4,7 +4,7 @@
 
 | Status | Version | Architecture | Primary Language |
 |--------|---------|--------------|------------------|
-| MVP Development | `v0.1.0` | `x86_64` | Rust |
+| v1.0 Release Engineering | `v0.1.0` | `x86_64` | Rust |
 
 ---
 
@@ -47,7 +47,10 @@ For detailed technical documentation, see the [`docs/`](docs/) directory:
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [SECURITY_MODEL.md](docs/SECURITY_MODEL.md)
 - [AI_SUBSYSTEM.md](docs/AI_SUBSYSTEM.md)
+- [ROADMAP.md](docs/ROADMAP.md)
+- [RELEASE.md](docs/RELEASE.md)
 - [RUNBOOK.md](docs/RUNBOOK.md)
+- [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -93,6 +96,12 @@ make clippy
 
 # Run host-side unit tests
 make test
+
+# Run deterministic stress and mutation-fuzz suites
+make stress-test
+
+# Build, verify and boot-test release artifacts
+make release-test VERSION=dev
 ```
 
 For the full local execution and CI checklist, see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
