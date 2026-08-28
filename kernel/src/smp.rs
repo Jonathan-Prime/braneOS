@@ -13,6 +13,8 @@ use crate::memory::frame_allocator::BitmapFrameAllocator;
 #[cfg(target_os = "none")]
 use x86_64::structures::paging::{OffsetPageTable, Page, PageTableFlags, PhysFrame, Translate};
 #[cfg(target_os = "none")]
+use x86_64::structures::DescriptorTablePointer;
+#[cfg(target_os = "none")]
 use x86_64::{PhysAddr, VirtAddr};
 
 pub const MAX_CPUS: usize = 32;
@@ -21,6 +23,10 @@ const LEGACY_LIMIT: u64 = 0x10_0000;
 const PAGE_SIZE: u64 = 4096;
 #[cfg(target_os = "none")]
 const AP_START_TIMEOUT_SPINS: usize = 5_000_000;
+#[cfg(target_os = "none")]
+const AP_ACK_ONLINE: u32 = 1;
+#[cfg(target_os = "none")]
+const AP_ACK_FAILED: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -214,8 +220,9 @@ struct ApContext {
     stack: u64,
     entry: u64,
     apic_id: u32,
-    _reserved: u32,
+    cpu_slot: u32,
     ready: u64,
+    idt: DescriptorTablePointer,
 }
 
 #[cfg(target_os = "none")]
@@ -274,7 +281,10 @@ pub fn prepare_ap_trampoline(
         if length > PAGE_SIZE as usize {
             return Err(ApStartupError::TrampolineTooLarge);
         }
-        let destination = (physical_memory_offset + trampoline_phys) as *mut u8;
+        let destination_address = physical_memory_offset
+            .checked_add(trampoline_phys)
+            .ok_or(ApStartupError::TrampolineContextOverflow)?;
+        let destination = destination_address as *mut u8;
         core::ptr::write_bytes(destination, 0, PAGE_SIZE as usize);
         core::ptr::copy_nonoverlapping(source, destination, length);
 
@@ -317,8 +327,9 @@ pub fn prepare_ap_trampoline(
             stack: 0,
             entry: ap_entry as *const () as u64,
             apic_id: 0,
-            _reserved: 0,
+            cpu_slot: 0,
             ready: 0,
+            idt: x86_64::instructions::tables::sidt(),
         };
         core::ptr::write_unaligned(destination.add(context_offset) as *mut ApContext, context);
         Ok(ApTrampoline {
@@ -347,12 +358,15 @@ pub fn start_application_processors(
     }
 
     let mut report = ApStartupReport::default();
+    let mut cpu_slot = 1usize;
     for slot in 0..plan.cpu_count {
         let Some(cpu) = plan.cpus[slot] else { continue };
         if !cpu.enabled || Some(slot) == plan.bsp_index {
             continue;
         }
         report.attempted += 1;
+        let ap_cpu_slot = cpu_slot;
+        cpu_slot += 1;
         if cpu.apic_id > u8::MAX as u32 {
             plan.cpus[slot].as_mut().unwrap().lifecycle = CpuLifecycle::Failed;
             report.failed += 1;
@@ -370,7 +384,7 @@ pub fn start_application_processors(
         };
         context.entry = ap_entry as *const () as u64;
         context.apic_id = cpu.apic_id;
-        context._reserved = 0;
+        context.cpu_slot = ap_cpu_slot as u32;
         context.ready = ack as *const _ as u64;
         unsafe {
             core::ptr::write_unaligned(context_virtual as *mut ApContext, context);
@@ -388,7 +402,10 @@ pub fn start_application_processors(
             }
             core::hint::spin_loop();
         }
-        if started && plan.mark_online(cpu.apic_id).is_ok() {
+        if started
+            && ack.load(core::sync::atomic::Ordering::Acquire) == AP_ACK_ONLINE
+            && plan.mark_online(cpu.apic_id).is_ok()
+        {
             report.online += 1;
         } else {
             let _ = plan.mark_failed(cpu.apic_id);
@@ -399,8 +416,27 @@ pub fn start_application_processors(
 }
 
 #[cfg(target_os = "none")]
-extern "C" fn ap_entry(_apic_id: u32) -> ! {
+extern "C" fn ap_entry(
+    _apic_id: u32,
+    cpu_slot: u32,
+    ready: *const core::sync::atomic::AtomicU32,
+    idt: *const DescriptorTablePointer,
+) -> ! {
     x86_64::instructions::interrupts::disable();
+    let initialized = unsafe {
+        crate::gdt::init_ap(cpu_slot as usize).is_ok()
+            && crate::usermode::init_syscall_msrs_for_cpu(cpu_slot as usize)
+    };
+    if initialized {
+        unsafe {
+            x86_64::instructions::tables::lidt(&*idt);
+            (*ready).store(AP_ACK_ONLINE, core::sync::atomic::Ordering::Release);
+        }
+    } else {
+        unsafe {
+            (*ready).store(AP_ACK_FAILED, core::sync::atomic::Ordering::Release);
+        }
+    }
     loop {
         x86_64::instructions::hlt();
     }
@@ -453,9 +489,10 @@ smp_ap_long_mode_target:
     mov es, ax
     mov ss, ax
     mov rsp, qword ptr [rip + smp_ap_context + 32]
-    mov rax, qword ptr [rip + smp_ap_context + 56]
-    mov dword ptr [rax], 1
     mov edi, dword ptr [rip + smp_ap_context + 48]
+    mov esi, dword ptr [rip + smp_ap_context + 52]
+    mov rdx, qword ptr [rip + smp_ap_context + 56]
+    lea rcx, [rip + smp_ap_context + 64]
     mov rax, qword ptr [rip + smp_ap_context + 40]
     jmp rax
 

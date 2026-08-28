@@ -51,11 +51,25 @@ pub struct PerCpuData {
     pub user_rsp: u64,
 }
 
-/// Single static instance for the boot CPU.
-pub static mut PER_CPU: PerCpuData = PerCpuData {
-    kernel_rsp: 0,
-    user_rsp: 0,
-};
+impl PerCpuData {
+    pub const fn new() -> Self {
+        Self {
+            kernel_rsp: 0,
+            user_rsp: 0,
+        }
+    }
+}
+
+impl Default for PerCpuData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Static per-CPU blocks. Slot zero is reserved for the BSP; AP slots are
+/// selected by the SMP bootstrap sequence before their syscall MSRs load.
+pub static mut PER_CPU: [PerCpuData; crate::smp::MAX_CPUS] =
+    [const { PerCpuData::new() }; crate::smp::MAX_CPUS];
 
 // -----------------------------------------------------------------------
 // UserContext — full CPU state at the moment of a syscall
@@ -187,6 +201,30 @@ unsafe fn wrmsr(msr: u32, value: u64) {
 /// GDT must already contain ring-3 code and data segments.
 pub fn init_syscall_msrs() {
     unsafe {
+        let _ = init_syscall_msrs_for_cpu(0);
+    }
+
+    crate::serial_println!(
+        "[usermode] syscall MSRs configured (STAR/LSTAR/FMASK). syscall/sysret enabled."
+    );
+}
+
+/// Configure syscall MSRs and the kernel GS block for one logical CPU.
+///
+/// The caller must have loaded the matching per-CPU GDT first. Slot zero is
+/// the BSP; APs use stable non-zero slots for the lifetime of the kernel.
+/// Returns `false` when the requested slot is outside the static table.
+///
+/// # Safety
+/// Must run in ring 0 with interrupts disabled, after the caller has loaded
+/// the GDT belonging to `cpu_slot`. The per-CPU block must remain allocated
+/// for as long as this CPU's syscall MSRs are active.
+pub unsafe fn init_syscall_msrs_for_cpu(cpu_slot: usize) -> bool {
+    if cpu_slot >= crate::smp::MAX_CPUS {
+        return false;
+    }
+
+    unsafe {
         // 1. Enable SCE in EFER
         let efer = rdmsr(MSR_EFER);
         wrmsr(MSR_EFER, efer | EFER_SCE);
@@ -210,19 +248,16 @@ pub fn init_syscall_msrs() {
         //    so the entry stub can load kernel_rsp via GS-relative addressing.
         //    We use IA32_KERNEL_GS_BASE (0xC0000102) — this is the value
         //    that swapgs switches IN when entering the kernel.
-        let per_cpu_addr = core::ptr::addr_of!(PER_CPU) as u64;
+        let per_cpu_addr = core::ptr::addr_of!(PER_CPU[cpu_slot]) as u64;
         wrmsr(0xC000_0102, per_cpu_addr); // IA32_KERNEL_GS_BASE
 
         // Provide a default kernel stack pointer (the current RSP).
-        // A real scheduler will update PER_CPU.kernel_rsp per task switch.
+        // A real scheduler will update this per-CPU kernel_rsp per task switch.
         let rsp: u64;
         core::arch::asm!("mov {}, rsp", out(reg) rsp, options(nomem, nostack));
-        PER_CPU.kernel_rsp = rsp;
+        (*core::ptr::addr_of_mut!(PER_CPU[cpu_slot])).kernel_rsp = rsp;
     }
-
-    crate::serial_println!(
-        "[usermode] syscall MSRs configured (STAR/LSTAR/FMASK). syscall/sysret enabled."
-    );
+    true
 }
 
 // -----------------------------------------------------------------------
@@ -398,8 +433,9 @@ mod tests {
     #[test]
     fn per_cpu_initial_state() {
         // Static initial values are zero
-        let kernel_rsp = unsafe { PER_CPU.kernel_rsp };
-        let user_rsp = unsafe { PER_CPU.user_rsp };
+        let data = unsafe { core::ptr::read(core::ptr::addr_of!(PER_CPU[0])) };
+        let kernel_rsp = data.kernel_rsp;
+        let user_rsp = data.user_rsp;
         // Before init_syscall_msrs() is called on bare metal both are 0;
         // on the host test environment this still holds.
         let _ = kernel_rsp;

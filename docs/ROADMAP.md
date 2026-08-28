@@ -231,8 +231,8 @@ físico y ejecución del gate final v1.0.
 |-----------|--------|-----------|-------------|
 | Parser MADT | ✅ | ALTA | ACPI |
 | Local APIC + I/O APIC | ✅ | ALTA | IDT, overrides MADT y routing IRQ0/IRQ1 |
-| Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI xAPIC operativo; faltan per-CPU GDT/TSS |
-| Estado per-CPU | 🔄 | ALTA | Plan MADT validado; faltan GDT/TSS, stacks y MSRs por CPU |
+| Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI + GDT/TSS/IDT/MSR xAPIC; falta dispatcher multicore |
+| Estado per-CPU | 🔄 | ALTA | GDT/TSS/IST, stacks y MSRs por CPU; falta estado runtime del scheduler |
 | Scheduler multicore | 🔲 | ALTA | Run queues y balanceo |
 | Sincronización y stress SMP | 🔲 | ALTA | Spinlocks, atomics y pruebas de carrera |
 
@@ -243,10 +243,12 @@ múltiples cores y supera stress tests sin deadlocks ni corrupción.
 x2APIC, sobrescritura de dirección LAPIC y `Interrupt Source Override`); ventanas
 MMIO del LAPIC/I/O APIC con atributos uncached; hand-off controlado de IRQ0/IRQ1
 al I/O APIC con EOI por LAPIC, restauración tras S3 y fallback automático al PIC;
-y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU).
+y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU),
+incluyendo GDT/TSS/IST, IDT y MSRs de syscall por AP antes del ACK.
 El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
-`Failed`. Pendientes GDT/TSS e IDT por CPU, aislamiento de stacks, scheduler
-multicore y validación de hardware físico.
+`Failed`. Pendientes dispatcher de interrupciones, habilitación controlada de
+IF/APIC por CPU, scheduler multicore, sincronización y validación de hardware
+físico.
 
 ---
 
