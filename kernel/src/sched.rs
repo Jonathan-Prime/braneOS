@@ -249,6 +249,24 @@ pub fn configure_multicore(cpu_count: usize) -> usize {
     MULTICORE_SCHEDULER.lock().configure(cpu_count)
 }
 
+/// Select the next task for a logical CPU, falling back to a steal from the
+/// busiest peer when its own queue is empty. The returned ID is metadata only;
+/// callers must still coordinate with `Scheduler::prepare_switch` before
+/// changing register state.
+pub fn next_task_for_cpu(cpu: usize) -> Option<TaskId> {
+    let mut run_queues = MULTICORE_SCHEDULER.lock();
+    run_queues
+        .pick_next(cpu)
+        .ok()
+        .flatten()
+        .or_else(|| run_queues.steal(cpu).ok().flatten())
+}
+
+/// Select the next task for the current processor using the APIC-to-slot map.
+pub fn next_task_for_current_cpu() -> Option<TaskId> {
+    next_task_for_cpu(crate::smp::current_cpu_index())
+}
+
 /// Task priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]

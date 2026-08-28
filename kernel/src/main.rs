@@ -217,6 +217,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 Ok(activation) => {
                     match acpi::assign_bsp(activation.local_apic_id as u32) {
                         Ok(slot) => {
+                            smp::register_cpu_index(activation.local_apic_id as u32, 0);
                             serial_println!(
                                 "[smp] BSP assigned to CPU slot {}; AP startup pending",
                                 slot

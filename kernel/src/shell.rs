@@ -147,10 +147,11 @@ fn cmd_sched() {
         let run_queues = sched::MULTICORE_SCHEDULER.lock();
         (run_queues.cpu_count(), run_queues.loads())
     };
+    let current_cpu = crate::smp::current_cpu_index();
 
-    let mut buf = [0u8; 64];
+    let mut buf = [0u8; 96];
     let mut c = WriteBuf::new(&mut buf);
-    let _ = writeln!(c, "Scheduler — {} ticks total", total);
+    let _ = writeln!(c, "Scheduler — CPU{} — {} ticks total", current_cpu, total);
     tty::tty_print(c.as_str());
 
     tty::tty_println("ID   PRI   STATE    TICKS  RSP              RIP              NAME");

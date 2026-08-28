@@ -21,6 +21,8 @@ pub const MAX_CPUS: usize = 32;
 /// Fixed-delivery vector used by the BSP to verify AP interrupt readiness.
 pub const AP_INTERRUPT_PROBE_VECTOR: u8 = 0xF0;
 #[cfg(target_os = "none")]
+const UNREGISTERED_CPU: u16 = u16::MAX;
+#[cfg(target_os = "none")]
 const LEGACY_LIMIT: u64 = 0x10_0000;
 const PAGE_SIZE: u64 = 4096;
 #[cfg(target_os = "none")]
@@ -265,6 +267,36 @@ static AP_INTERRUPT_ACK: [core::sync::atomic::AtomicU32; 256] =
     [const { core::sync::atomic::AtomicU32::new(0) }; 256];
 
 #[cfg(target_os = "none")]
+static CPU_INDEX_BY_APIC_ID: [core::sync::atomic::AtomicU16; 256] =
+    [const { core::sync::atomic::AtomicU16::new(UNREGISTERED_CPU) }; 256];
+
+/// Associate an xAPIC ID with the stable per-CPU runtime slot.
+pub fn register_cpu_index(apic_id: u32, cpu_slot: usize) {
+    #[cfg(target_os = "none")]
+    if apic_id <= u8::MAX as u32 && cpu_slot < MAX_CPUS {
+        CPU_INDEX_BY_APIC_ID[apic_id as usize]
+            .store(cpu_slot as u16, core::sync::atomic::Ordering::Release);
+    }
+    #[cfg(not(target_os = "none"))]
+    let _ = (apic_id, cpu_slot);
+}
+
+/// Return the runtime slot for the processor executing this code.
+pub fn current_cpu_index() -> usize {
+    #[cfg(target_os = "none")]
+    {
+        if let Some(apic_id) = crate::apic::current_local_apic_id() {
+            let slot =
+                CPU_INDEX_BY_APIC_ID[apic_id as usize].load(core::sync::atomic::Ordering::Acquire);
+            if slot != UNREGISTERED_CPU {
+                return slot as usize;
+            }
+        }
+    }
+    0
+}
+
+#[cfg(target_os = "none")]
 unsafe extern "C" {
     static smp_ap_trampoline_start: u8;
     static smp_ap_trampoline_end: u8;
@@ -493,7 +525,7 @@ pub fn acknowledge_interrupt_probe() {
 
 #[cfg(target_os = "none")]
 extern "C" fn ap_entry(
-    _apic_id: u32,
+    apic_id: u32,
     cpu_slot: u32,
     ready: *const core::sync::atomic::AtomicU32,
     idt: *const DescriptorTablePointer,
@@ -507,6 +539,7 @@ extern "C" fn ap_entry(
     if initialized {
         unsafe {
             x86_64::instructions::tables::lidt(&*idt);
+            register_cpu_index(apic_id, cpu_slot as usize);
             x86_64::instructions::interrupts::enable();
             (*ready).store(AP_ACK_ONLINE, core::sync::atomic::Ordering::Release);
         }
