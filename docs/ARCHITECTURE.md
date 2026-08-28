@@ -301,6 +301,10 @@ interrupciones y scheduler multicore.
 #### 5.2.3 Scheduler
 
 Planificador de tareas con soporte para prioridades y quantum configurable.
+`Scheduler` conserva el cambio de contexto cooperativo del BSP; `MultiCoreScheduler`
+mantiene run queues fijas por CPU, asigna nuevas tareas a la cola menos cargada y
+permite que un CPU ocioso robe una tarea de su vecino más cargado. La integración
+del pick/steal con el contexto de cada AP queda pendiente de la siguiente fase.
 
 ```rust
 pub trait Scheduler {

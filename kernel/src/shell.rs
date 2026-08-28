@@ -143,6 +143,10 @@ fn cmd_sched() {
         let scheduler = sched::SCHEDULER.lock();
         (scheduler.snapshot(), scheduler.total_ticks())
     };
+    let (queue_cpu_count, queue_loads) = {
+        let run_queues = sched::MULTICORE_SCHEDULER.lock();
+        (run_queues.cpu_count(), run_queues.loads())
+    };
 
     let mut buf = [0u8; 64];
     let mut c = WriteBuf::new(&mut buf);
@@ -181,6 +185,16 @@ fn cmd_sched() {
             t.name_str()
         );
         tty::tty_println(c2.as_str());
+    }
+
+    if queue_cpu_count > 1 {
+        let mut queue_buf = [0u8; 256];
+        let mut queue_text = WriteBuf::new(&mut queue_buf);
+        let _ = write!(queue_text, "Run queues ({} CPUs):", queue_cpu_count);
+        for (cpu, load) in queue_loads.iter().take(queue_cpu_count).enumerate() {
+            let _ = write!(queue_text, " CPU{}={}", cpu, load);
+        }
+        tty::tty_println(queue_text.as_str());
     }
 }
 

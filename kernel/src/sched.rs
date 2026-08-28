@@ -3,7 +3,8 @@
 // Brane OS Kernel — Scheduler (Round-Robin + Context Switch)
 // ============================================================
 //
-// A cooperative round-robin scheduler that manages kernel tasks.
+// A cooperative round-robin scheduler that manages kernel tasks, plus a
+// fixed-size per-CPU run-queue coordinator for the SMP bring-up path.
 // Each task has a unique ID, a priority, a state, and a saved
 // CPU context (`TaskContext`) so that it can be suspended and
 // resumed at will.
@@ -30,6 +31,223 @@ pub static SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new());
 
 /// Unique task identifier.
 pub type TaskId = u64;
+
+/// Maximum number of entries in one per-CPU run queue.
+const MAX_RUN_QUEUE_TASKS: usize = MAX_TASKS;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunQueueError {
+    InvalidCpu,
+    InvalidTask,
+    Full,
+    Duplicate,
+}
+
+/// Fixed-size FIFO/round-robin queue owned by one logical CPU.
+#[derive(Clone, Copy)]
+pub struct CpuRunQueue {
+    tasks: [TaskId; MAX_RUN_QUEUE_TASKS],
+    len: usize,
+    cursor: usize,
+}
+
+impl CpuRunQueue {
+    pub const fn new() -> Self {
+        Self {
+            tasks: [0; MAX_RUN_QUEUE_TASKS],
+            len: 0,
+            cursor: 0,
+        }
+    }
+
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    fn contains(&self, task_id: TaskId) -> bool {
+        self.tasks[..self.len].contains(&task_id)
+    }
+
+    fn enqueue(&mut self, task_id: TaskId) -> Result<(), RunQueueError> {
+        if task_id == 0 {
+            return Err(RunQueueError::InvalidTask);
+        }
+        if self.contains(task_id) {
+            return Err(RunQueueError::Duplicate);
+        }
+        if self.len == MAX_RUN_QUEUE_TASKS {
+            return Err(RunQueueError::Full);
+        }
+        self.tasks[self.len] = task_id;
+        self.len += 1;
+        Ok(())
+    }
+
+    fn remove(&mut self, task_id: TaskId) -> bool {
+        let Some(index) = self.tasks[..self.len].iter().position(|id| *id == task_id) else {
+            return false;
+        };
+        self.tasks.copy_within(index + 1..self.len, index);
+        self.len -= 1;
+        self.tasks[self.len] = 0;
+        if self.len == 0 {
+            self.cursor = 0;
+        } else {
+            self.cursor %= self.len;
+        }
+        true
+    }
+
+    fn next(&mut self) -> Option<TaskId> {
+        if self.len == 0 {
+            return None;
+        }
+        let task_id = self.tasks[self.cursor % self.len];
+        self.cursor = (self.cursor + 1) % self.len;
+        Some(task_id)
+    }
+}
+
+impl Default for CpuRunQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Per-CPU run-queue coordinator.
+///
+/// Task ownership is assigned to the least-loaded queue, with a rotating
+/// tie-breaker. An idle CPU can steal the oldest task from the busiest peer;
+/// actual register/context switching remains in `Scheduler` until the AP
+/// interrupt path is connected to it.
+pub struct MultiCoreScheduler {
+    queues: [CpuRunQueue; crate::smp::MAX_CPUS],
+    cpu_count: usize,
+    next_assignment: usize,
+}
+
+impl MultiCoreScheduler {
+    pub const fn new() -> Self {
+        Self {
+            queues: [const { CpuRunQueue::new() }; crate::smp::MAX_CPUS],
+            cpu_count: 1,
+            next_assignment: 0,
+        }
+    }
+
+    /// Reset queues and select the number of CPUs participating in dispatch.
+    /// At least the BSP is always present; excess CPUs are capped at the
+    /// static topology limit.
+    pub fn configure(&mut self, cpu_count: usize) -> usize {
+        self.cpu_count = cpu_count.clamp(1, crate::smp::MAX_CPUS);
+        self.queues = [const { CpuRunQueue::new() }; crate::smp::MAX_CPUS];
+        self.next_assignment = 0;
+        self.cpu_count
+    }
+
+    pub const fn cpu_count(&self) -> usize {
+        self.cpu_count
+    }
+
+    /// Assign a task to the least-loaded active CPU.
+    pub fn enqueue(&mut self, task_id: TaskId) -> Result<usize, RunQueueError> {
+        if task_id == 0 {
+            return Err(RunQueueError::InvalidTask);
+        }
+        if self.queues[..self.cpu_count]
+            .iter()
+            .any(|queue| queue.contains(task_id))
+        {
+            return Err(RunQueueError::Duplicate);
+        }
+        let mut selected = self.next_assignment % self.cpu_count;
+        let mut selected_load = self.queues[selected].len();
+        for offset in 1..self.cpu_count {
+            let candidate = (self.next_assignment + offset) % self.cpu_count;
+            let candidate_load = self.queues[candidate].len();
+            if candidate_load < selected_load {
+                selected = candidate;
+                selected_load = candidate_load;
+            }
+        }
+        self.queues[selected].enqueue(task_id)?;
+        self.next_assignment = (selected + 1) % self.cpu_count;
+        Ok(selected)
+    }
+
+    /// Remove a task from a CPU's queue, typically when it blocks or exits.
+    pub fn dequeue(&mut self, cpu: usize, task_id: TaskId) -> Result<bool, RunQueueError> {
+        if cpu >= self.cpu_count {
+            return Err(RunQueueError::InvalidCpu);
+        }
+        Ok(self.queues[cpu].remove(task_id))
+    }
+
+    /// Pick the next task on a CPU without removing it from the queue.
+    pub fn pick_next(&mut self, cpu: usize) -> Result<Option<TaskId>, RunQueueError> {
+        if cpu >= self.cpu_count {
+            return Err(RunQueueError::InvalidCpu);
+        }
+        Ok(self.queues[cpu].next())
+    }
+
+    /// Steal one task from the busiest peer queue.
+    pub fn steal(&mut self, thief_cpu: usize) -> Result<Option<TaskId>, RunQueueError> {
+        if thief_cpu >= self.cpu_count {
+            return Err(RunQueueError::InvalidCpu);
+        }
+        if self.queues[thief_cpu].len() == MAX_RUN_QUEUE_TASKS {
+            return Err(RunQueueError::Full);
+        }
+        let Some((victim, _)) = self
+            .queues
+            .iter()
+            .take(self.cpu_count)
+            .enumerate()
+            .filter(|(cpu, queue)| *cpu != thief_cpu && !queue.is_empty())
+            .max_by_key(|(cpu, queue)| (queue.len(), usize::MAX - *cpu))
+        else {
+            return Ok(None);
+        };
+        let task_id = self.queues[victim].tasks[0];
+        self.queues[victim].remove(task_id);
+        self.queues[thief_cpu]
+            .enqueue(task_id)
+            .expect("empty thief queue has capacity");
+        Ok(Some(task_id))
+    }
+
+    pub fn queue_load(&self, cpu: usize) -> Option<usize> {
+        (cpu < self.cpu_count).then(|| self.queues[cpu].len())
+    }
+
+    pub fn loads(&self) -> [usize; crate::smp::MAX_CPUS] {
+        let mut loads = [0; crate::smp::MAX_CPUS];
+        for (index, queue) in self.queues.iter().take(self.cpu_count).enumerate() {
+            loads[index] = queue.len();
+        }
+        loads
+    }
+}
+
+impl Default for MultiCoreScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Global run-queue coordinator used once AP dispatch is enabled.
+pub static MULTICORE_SCHEDULER: Mutex<MultiCoreScheduler> = Mutex::new(MultiCoreScheduler::new());
+
+/// Configure per-CPU queues from the number of processors that completed SMP
+/// bring-up. This is safe to call during early boot before tasks are enqueued.
+pub fn configure_multicore(cpu_count: usize) -> usize {
+    MULTICORE_SCHEDULER.lock().configure(cpu_count)
+}
 
 /// Task priority levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -464,4 +682,37 @@ pub fn yield_current() {
     }
     // If there is no other ready task, we simply return and the
     // current task continues.
+}
+
+#[cfg(test)]
+mod multicore_tests {
+    use super::*;
+
+    #[test]
+    fn assigns_tasks_to_least_loaded_cpu() {
+        let mut scheduler = MultiCoreScheduler::new();
+        assert_eq!(scheduler.configure(3), 3);
+        for task_id in 1..=6 {
+            assert_eq!(scheduler.enqueue(task_id), Ok((task_id as usize - 1) % 3));
+        }
+        assert_eq!(scheduler.loads()[..3], [2, 2, 2]);
+        assert_eq!(scheduler.enqueue(1), Err(RunQueueError::Duplicate));
+        assert_eq!(scheduler.enqueue(0), Err(RunQueueError::InvalidTask));
+    }
+
+    #[test]
+    fn picks_round_robin_and_steals_from_busiest_peer() {
+        let mut scheduler = MultiCoreScheduler::new();
+        scheduler.configure(3);
+        for task_id in 1..=4 {
+            scheduler.enqueue(task_id).unwrap();
+        }
+        assert_eq!(scheduler.pick_next(0), Ok(Some(1)));
+        assert_eq!(scheduler.pick_next(0), Ok(Some(4)));
+        assert_eq!(scheduler.steal(2), Ok(Some(1)));
+        assert_eq!(scheduler.loads()[..3], [1, 1, 2]);
+        assert_eq!(scheduler.dequeue(2, 1), Ok(true));
+        assert_eq!(scheduler.dequeue(2, 99), Ok(false));
+        assert_eq!(scheduler.pick_next(3), Err(RunQueueError::InvalidCpu));
+    }
 }

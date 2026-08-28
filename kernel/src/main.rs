@@ -317,18 +317,38 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // === Phase 2: Scheduler ===
     serial_println!();
     serial_println!("[boot] Phase 2: Scheduler (with cooperative context switching)...");
-    {
+    let online_cpu_count = acpi::info()
+        .smp
+        .map(|plan| plan.online_cpu_count())
+        .unwrap_or(1);
+    let queue_cpu_count = sched::configure_multicore(online_cpu_count.max(1));
+    let (idle_task, init_task, active_tasks) = {
         let mut scheduler = sched::SCHEDULER.lock();
         // The boot task reuses the bootloader's stack — no dedicated stack needed.
-        scheduler.add_task("kernel_idle", sched::Priority::Idle);
+        let idle_task = scheduler.add_task("kernel_idle", sched::Priority::Idle);
         // Register init as a real task with its own 16 KiB kernel stack.
         // In a future phase this will jump to user-space.
-        scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
-        serial_println!(
-            "[sched] Scheduler ready: {} tasks, cooperative context switching enabled.",
-            scheduler.active_count()
-        );
+        let init_task =
+            scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
+        (idle_task, init_task, scheduler.active_count())
+    };
+    {
+        let mut run_queues = sched::MULTICORE_SCHEDULER.lock();
+        if let Some(task_id) = idle_task {
+            let _ = run_queues.enqueue(task_id);
+        }
+        if let Some(task_id) = init_task {
+            let _ = run_queues.enqueue(task_id);
+        }
     }
+    serial_println!(
+        "[sched] Scheduler ready: {} tasks, cooperative context switching enabled.",
+        active_tasks
+    );
+    serial_println!(
+        "[sched] Multicore run queues ready: {} CPU(s).",
+        queue_cpu_count
+    );
 
     // === Phase 3: Syscalls & IPC ===
     serial_println!();
