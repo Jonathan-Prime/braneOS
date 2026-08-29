@@ -23,6 +23,21 @@
 use crate::context::{self, KernelStack, TaskContext};
 use spin::Mutex;
 
+/// Run a scheduler critical section with local interrupts masked on bare
+/// metal. Timer/IPI handlers touch the same locks, so allowing an interrupt
+/// to preempt the owner would deadlock trying to reacquire a spinlock.
+#[inline]
+pub fn with_interrupts_disabled<R>(f: impl FnOnce() -> R) -> R {
+    #[cfg(target_os = "none")]
+    {
+        x86_64::instructions::interrupts::without_interrupts(f)
+    }
+    #[cfg(not(target_os = "none"))]
+    {
+        f()
+    }
+}
+
 /// Maximum number of tasks the scheduler can manage.
 const MAX_TASKS: usize = 64;
 
@@ -77,6 +92,37 @@ impl CpuRuntimeSnapshot {
         }
     }
 }
+
+/// CPU-local scheduler state kept separate from the global BSP scheduler.
+///
+/// The saved context is metadata until AP register switching is enabled, but
+/// it is intentionally per CPU now so an AP can never overwrite the BSP's
+/// current task or saved context while the transition is in progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuSchedulerSnapshot {
+    pub initialized: bool,
+    pub current_task: Option<TaskId>,
+    pub saved_context: TaskContext,
+    pub context_switches: u64,
+    pub timer_ticks: u64,
+}
+
+impl CpuSchedulerSnapshot {
+    const fn new() -> Self {
+        Self {
+            initialized: false,
+            current_task: None,
+            saved_context: TaskContext::empty(),
+            context_switches: 0,
+            timer_ticks: 0,
+        }
+    }
+}
+
+/// Stable CPU-local scheduler slots. Each slot is protected independently so
+/// an AP's bookkeeping does not share the BSP's global task cursor.
+pub static PER_CPU_SCHEDULER: [Mutex<CpuSchedulerSnapshot>; crate::smp::MAX_CPUS] =
+    [const { Mutex::new(CpuSchedulerSnapshot::new()) }; crate::smp::MAX_CPUS];
 
 /// Fixed-size FIFO/round-robin queue owned by one logical CPU.
 #[derive(Clone, Copy)]
@@ -374,7 +420,41 @@ pub static MULTICORE_SCHEDULER: Mutex<MultiCoreScheduler> = Mutex::new(MultiCore
 /// Configure per-CPU queues from the number of processors that completed SMP
 /// bring-up. This is safe to call during early boot before tasks are enqueued.
 pub fn configure_multicore(cpu_count: usize) -> usize {
-    MULTICORE_SCHEDULER.lock().configure(cpu_count)
+    with_interrupts_disabled(|| {
+        let configured = MULTICORE_SCHEDULER.lock().configure(cpu_count);
+        for cpu in 0..configured {
+            init_cpu_scheduler(cpu);
+        }
+        configured
+    })
+}
+
+/// Add a task to the active run queues while keeping timer/IPI handlers from
+/// re-entering the queue lock on the same CPU.
+pub fn enqueue_task(task_id: TaskId) -> Result<usize, RunQueueError> {
+    with_interrupts_disabled(|| MULTICORE_SCHEDULER.lock().enqueue(task_id))
+}
+
+pub fn enqueue_task_on_cpu(cpu: usize, task_id: TaskId) -> Result<(), RunQueueError> {
+    with_interrupts_disabled(|| MULTICORE_SCHEDULER.lock().enqueue_on_cpu(cpu, task_id))
+}
+
+/// Initialize one CPU-local scheduler slot. APs call this after loading their
+/// private GDT/TSS; the BSP slot is initialized when run queues are configured.
+pub fn init_cpu_scheduler(cpu: usize) -> bool {
+    with_interrupts_disabled(|| {
+        let Some(slot) = PER_CPU_SCHEDULER.get(cpu) else {
+            return false;
+        };
+        let mut state = slot.lock();
+        *state = CpuSchedulerSnapshot::new();
+        state.initialized = true;
+        true
+    })
+}
+
+pub fn cpu_scheduler_snapshot(cpu: usize) -> Option<CpuSchedulerSnapshot> {
+    with_interrupts_disabled(|| PER_CPU_SCHEDULER.get(cpu).map(|slot| *slot.lock()))
 }
 
 /// Select the next task for a logical CPU, falling back to a steal from the
@@ -382,12 +462,14 @@ pub fn configure_multicore(cpu_count: usize) -> usize {
 /// callers must still coordinate with `Scheduler::prepare_switch` before
 /// changing register state.
 pub fn next_task_for_cpu(cpu: usize) -> Option<TaskId> {
-    let mut run_queues = MULTICORE_SCHEDULER.lock();
-    run_queues
-        .pick_next(cpu)
-        .ok()
-        .flatten()
-        .or_else(|| run_queues.steal(cpu).ok().flatten())
+    with_interrupts_disabled(|| {
+        let mut run_queues = MULTICORE_SCHEDULER.lock();
+        run_queues
+            .pick_next(cpu)
+            .ok()
+            .flatten()
+            .or_else(|| run_queues.steal(cpu).ok().flatten())
+    })
 }
 
 /// Select the next task for the current processor using the APIC-to-slot map.
@@ -397,12 +479,30 @@ pub fn next_task_for_current_cpu() -> Option<TaskId> {
 
 /// Dispatch work for a logical CPU and update per-CPU runtime accounting.
 pub fn dispatch_for_cpu(cpu: usize) -> DispatchResult {
-    MULTICORE_SCHEDULER.lock().dispatch(cpu)
+    with_interrupts_disabled(|| {
+        let result = MULTICORE_SCHEDULER.lock().dispatch(cpu);
+        if let DispatchResult::Dispatched(task_id) | DispatchResult::Stole(task_id) = result {
+            if let Some(slot) = PER_CPU_SCHEDULER.get(cpu) {
+                let mut state = slot.lock();
+                state.current_task = Some(task_id);
+                state.context_switches += 1;
+            }
+        }
+        result
+    })
 }
 
 /// Complete the current dispatch and put the task back on its CPU queue.
 pub fn complete_for_cpu(cpu: usize) -> Option<TaskId> {
-    MULTICORE_SCHEDULER.lock().complete(cpu).ok().flatten()
+    with_interrupts_disabled(|| {
+        let completed = MULTICORE_SCHEDULER.lock().complete(cpu).ok().flatten();
+        if completed.is_some() {
+            if let Some(slot) = PER_CPU_SCHEDULER.get(cpu) {
+                slot.lock().current_task = None;
+            }
+        }
+        completed
+    })
 }
 
 /// Dispatch one quantum for the processor executing this code.
@@ -415,8 +515,45 @@ pub fn complete_current_cpu() -> Option<TaskId> {
     complete_for_cpu(crate::smp::current_cpu_index())
 }
 
+/// Account one hardware timer quantum for a CPU and run a bounded dispatcher
+/// pass. The actual register switch remains explicit and is not performed
+/// from an interrupt frame yet.
+pub fn timer_tick_for_cpu(cpu: usize) -> DispatchResult {
+    with_interrupts_disabled(|| {
+        let Some(slot) = PER_CPU_SCHEDULER.get(cpu) else {
+            return DispatchResult::InvalidCpu;
+        };
+        slot.lock().timer_ticks += 1;
+
+        // The legacy BSP scheduler still owns its cooperative task cursor.
+        // APs use only their per-CPU run queue until isolated context
+        // switching lands.
+        if cpu == 0 {
+            // Interrupt handlers must never spin on a lock held by the
+            // interrupted context. If the BSP is already updating a task
+            // table, this tick is safely deferred to the next interrupt.
+            if let Some(mut scheduler) = SCHEDULER.try_lock() {
+                scheduler.tick();
+            }
+        }
+
+        let result = dispatch_for_cpu(cpu);
+        if matches!(
+            result,
+            DispatchResult::Dispatched(_) | DispatchResult::Stole(_)
+        ) {
+            let _ = complete_for_cpu(cpu);
+        }
+        result
+    })
+}
+
+pub fn timer_tick_current_cpu() -> DispatchResult {
+    timer_tick_for_cpu(crate::smp::current_cpu_index())
+}
+
 pub fn multicore_runtime_snapshots() -> [CpuRuntimeSnapshot; crate::smp::MAX_CPUS] {
-    MULTICORE_SCHEDULER.lock().runtime_snapshots()
+    with_interrupts_disabled(|| MULTICORE_SCHEDULER.lock().runtime_snapshots())
 }
 
 /// Task priority levels.
@@ -834,9 +971,18 @@ impl TaskSnapshot {
 /// by another task (deadlock). The scheduler lock is released before
 /// the actual context switch occurs.
 pub fn yield_current() {
+    // APs do not share the BSP's cooperative task cursor. Until their full
+    // register frame switch is enabled, yielding an AP task completes one
+    // local queue quantum and returns to the AP dispatcher.
+    if crate::smp::current_cpu_index() != 0 {
+        let _ = dispatch_current_cpu();
+        let _ = complete_current_cpu();
+        return;
+    }
+
     // Get the raw context pointers while holding the lock, then
     // immediately release it before doing the switch.
-    let switch_pair = SCHEDULER.lock().prepare_switch();
+    let switch_pair = with_interrupts_disabled(|| SCHEDULER.lock().prepare_switch());
 
     if let Some((old_ptr, new_ptr)) = switch_pair {
         // SAFETY:
@@ -940,5 +1086,17 @@ mod multicore_tests {
             scheduler.enqueue_on_cpu(1, 0),
             Err(RunQueueError::InvalidTask)
         );
+    }
+
+    #[test]
+    fn cpu_local_scheduler_tracks_timer_without_touching_bsp() {
+        let cpu = crate::smp::MAX_CPUS - 1;
+        assert!(init_cpu_scheduler(cpu));
+        assert_eq!(timer_tick_for_cpu(cpu), DispatchResult::InvalidCpu);
+        let snapshot = cpu_scheduler_snapshot(cpu).unwrap();
+        assert!(snapshot.initialized);
+        assert_eq!(snapshot.timer_ticks, 1);
+        assert_eq!(snapshot.current_task, None);
+        assert_eq!(snapshot.context_switches, 0);
     }
 }

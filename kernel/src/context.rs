@@ -40,7 +40,7 @@
 ///   rbp  @ offset 0x28
 ///   rsp  @ offset 0x30
 ///   rip  @ offset 0x38
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TaskContext {
     pub rbx: u64,

@@ -573,6 +573,7 @@ extern "C" fn ap_entry(
     let initialized = unsafe {
         crate::gdt::init_ap(cpu_slot as usize).is_ok()
             && crate::usermode::init_syscall_msrs_for_cpu(cpu_slot as usize)
+            && crate::sched::init_cpu_scheduler(cpu_slot as usize)
             && crate::apic::enable_current_local_apic()
     };
     if initialized {

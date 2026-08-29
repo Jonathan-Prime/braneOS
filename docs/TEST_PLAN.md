@@ -145,6 +145,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
 | **SMP/AP startup test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, INIT/SIPI, GDT/TSS/IDT/MSR, IPI probe, 8 rondas de dispatcher y shell) |
 | **SMP run-queue + dispatcher model (host)** | **Activo** | `cargo test -p brane_os_kernel --lib sched::multicore_tests` (balanceo, steal, dispatch/complete y protección de tareas en ejecución) |
+| **SMP per-CPU timer state (host)** | **Activo** | `cargo test -p brane_os_kernel --lib cpu_local_scheduler_tracks_timer_without_touching_bsp` (slot, ticks y aislamiento del cursor BSP) |
 | **SMP dispatcher stress (host)** | **Activo** | `cargo test -p brane_os_kernel --lib stress_multicore_dispatch_preserves_task_ownership` (4 workers, 2.000 rondas, ownership y stealing) |
 | **ACPI S3 test (QEMU/QMP)** | **Activo** | `make acpi-test` (suspend, wake y shell post-resume) |
 | **ACPI MADT/APIC/SMP** | **Activo** | `cargo test -p brane_os_kernel --lib madt` y `cargo test -p brane_os_kernel --lib smp` + boot BIOS (xAPIC/x2APIC, overrides, MMIO, IRQ routing, BSP y fallback PIC) |

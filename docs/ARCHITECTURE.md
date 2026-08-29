@@ -308,10 +308,11 @@ Planificador de tareas con soporte para prioridades y quantum configurable.
 mantiene run queues fijas por CPU, asigna nuevas tareas a la cola menos cargada y
 permite que un CPU ocioso robe una tarea de su vecino más cargado. La API de
 afinidad permite fijar tareas durante el arranque y las pruebas. Cada CPU
-mantiene un estado runtime y el dispatcher retira la tarea mientras corre para
-evitar dobles ejecuciones; `complete` la devuelve a la cola al terminar el
-quantum. La integración del cambio de contexto de registros por AP queda
-pendiente de la siguiente iteración.
+mantiene un estado runtime y un slot de scheduler protegido de forma
+independiente, con contador de ticks y contexto guardado propio. El dispatcher
+retira la tarea mientras corre para evitar dobles ejecuciones; `complete` la
+devuelve a la cola al terminar el quantum. La integración del cambio de
+contexto de registros por AP queda pendiente de la siguiente iteración.
 
 ```rust
 pub trait Scheduler {

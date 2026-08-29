@@ -139,14 +139,14 @@ fn cmd_mem() {
 fn cmd_sched() {
     use core::fmt::Write;
 
-    let (snapshot, total) = {
+    let (snapshot, total) = sched::with_interrupts_disabled(|| {
         let scheduler = sched::SCHEDULER.lock();
         (scheduler.snapshot(), scheduler.total_ticks())
-    };
-    let (queue_cpu_count, queue_loads) = {
+    });
+    let (queue_cpu_count, queue_loads) = sched::with_interrupts_disabled(|| {
         let run_queues = sched::MULTICORE_SCHEDULER.lock();
         (run_queues.cpu_count(), run_queues.loads())
-    };
+    });
     let current_cpu = crate::smp::current_cpu_index();
 
     let mut buf = [0u8; 96];

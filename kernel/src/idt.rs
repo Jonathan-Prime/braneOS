@@ -132,10 +132,10 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
 // -----------------------------------------------------------------------
 
 /// Timer interrupt — fires on every PIT tick (~18.2 Hz by default).
-/// This will drive the scheduler in future phases.
+/// The handler accounts a per-CPU quantum and performs a bounded queue pass;
+/// register switching remains outside the interrupt frame for now.
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    // Future: tick the scheduler here
-    // sched::tick();
+    let _ = crate::sched::timer_tick_current_cpu();
 
     acknowledge_interrupt(pic::InterruptIndex::Timer.as_u8());
 }
@@ -152,9 +152,9 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
     acknowledge_interrupt(pic::InterruptIndex::Keyboard.as_u8());
 }
 
-/// Targeted APIC probe used during SMP bring-up. The handler deliberately
-/// avoids the scheduler and only records liveness before sending the LAPIC
-/// EOI, keeping it safe while per-CPU runtime state is still being assembled.
+/// Targeted APIC probe used during SMP bring-up and dispatcher validation.
+/// The handler runs one bounded per-CPU queue quantum before sending the LAPIC
+/// EOI, keeping register switching out of the interrupt frame.
 extern "x86-interrupt" fn ap_interrupt_probe_handler(_stack_frame: InterruptStackFrame) {
     brane_os_kernel::smp::acknowledge_interrupt_probe();
     let _ = brane_os_kernel::apic::end_of_interrupt();

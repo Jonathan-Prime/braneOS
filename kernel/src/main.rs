@@ -323,7 +323,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .map(|plan| plan.online_cpu_count())
         .unwrap_or(1);
     let queue_cpu_count = sched::configure_multicore(online_cpu_count.max(1));
-    let (idle_task, init_task, active_tasks) = {
+    let (idle_task, init_task, active_tasks) = sched::with_interrupts_disabled(|| {
         let mut scheduler = sched::SCHEDULER.lock();
         // The boot task reuses the bootloader's stack — no dedicated stack needed.
         let idle_task = scheduler.add_task("kernel_idle", sched::Priority::Idle);
@@ -332,15 +332,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         let init_task =
             scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
         (idle_task, init_task, scheduler.active_count())
-    };
-    {
-        let mut run_queues = sched::MULTICORE_SCHEDULER.lock();
-        if let Some(task_id) = idle_task {
-            let _ = run_queues.enqueue(task_id);
-        }
-        if let Some(task_id) = init_task {
-            let _ = run_queues.enqueue(task_id);
-        }
+    });
+    if let Some(task_id) = idle_task {
+        let _ = sched::enqueue_task(task_id);
+    }
+    if let Some(task_id) = init_task {
+        let _ = sched::enqueue_task(task_id);
     }
     serial_println!(
         "[sched] Scheduler ready: {} tasks, cooperative context switching enabled.",
