@@ -153,8 +153,8 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 }
 
 /// Targeted APIC probe used during SMP bring-up and dispatcher validation.
-/// The handler runs one bounded per-CPU queue quantum before sending the LAPIC
-/// EOI, keeping register switching out of the interrupt frame.
+/// The handler only wakes the AP; the normal AP loop performs the register
+/// handoff after the interrupt frame has been retired.
 extern "x86-interrupt" fn ap_interrupt_probe_handler(_stack_frame: InterruptStackFrame) {
     brane_os_kernel::smp::acknowledge_interrupt_probe();
     let _ = brane_os_kernel::apic::end_of_interrupt();

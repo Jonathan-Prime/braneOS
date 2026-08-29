@@ -199,6 +199,24 @@ impl CpuRunQueue {
         self.remove(task_id);
         Some(task_id)
     }
+
+    /// Remove the next task except `excluded`.
+    ///
+    /// A yielding CPU puts its current task back on the local queue before
+    /// selecting a successor. Keeping the current ID out of this selection
+    /// guarantees that a real handoff is made when another runnable task is
+    /// available, while preserving the queue cursor for the next quantum.
+    fn pop_next_excluding(&mut self, excluded: Option<TaskId>) -> Option<TaskId> {
+        let attempts = self.len;
+        for _ in 0..attempts {
+            let task_id = self.next()?;
+            if Some(task_id) != excluded {
+                self.remove(task_id);
+                return Some(task_id);
+            }
+        }
+        None
+    }
 }
 
 impl Default for CpuRunQueue {
@@ -348,6 +366,15 @@ impl MultiCoreScheduler {
     /// Dispatch one task on a CPU. The selected task is removed from its
     /// queue while running, preventing a concurrent steal of the same task.
     pub fn dispatch(&mut self, cpu: usize) -> DispatchResult {
+        self.dispatch_excluding_mode(cpu, None, true)
+    }
+
+    fn dispatch_excluding_mode(
+        &mut self,
+        cpu: usize,
+        excluded: Option<TaskId>,
+        allow_steal: bool,
+    ) -> DispatchResult {
         if cpu >= self.cpu_count {
             return DispatchResult::InvalidCpu;
         }
@@ -355,24 +382,50 @@ impl MultiCoreScheduler {
             return DispatchResult::Busy(task_id);
         }
 
-        if let Some(task_id) = self.queues[cpu].pop_next() {
+        if let Some(task_id) = self.queues[cpu].pop_next_excluding(excluded) {
             self.runtime[cpu].current = Some(task_id);
             self.runtime[cpu].dispatches += 1;
             return DispatchResult::Dispatched(task_id);
         }
 
-        if let Some(task_id) = self.steal(cpu).ok().flatten() {
-            // `steal` moved the task onto the thief's queue; remove it again
-            // so the runtime state is the single source of ownership.
-            let selected = self.queues[cpu].pop_next().unwrap_or(task_id);
-            self.runtime[cpu].current = Some(selected);
-            self.runtime[cpu].dispatches += 1;
-            self.runtime[cpu].steals += 1;
-            return DispatchResult::Stole(selected);
+        if allow_steal {
+            if let Some(task_id) = self.steal(cpu).ok().flatten() {
+                // `steal` moved the task onto the thief's queue; remove it
+                // again so the runtime state is the single source of
+                // ownership.
+                let selected = self.queues[cpu]
+                    .pop_next_excluding(excluded)
+                    .unwrap_or(task_id);
+                self.runtime[cpu].current = Some(selected);
+                self.runtime[cpu].dispatches += 1;
+                self.runtime[cpu].steals += 1;
+                return DispatchResult::Stole(selected);
+            }
         }
 
         self.runtime[cpu].idle_dispatches += 1;
         DispatchResult::Idle
+    }
+
+    /// End the current quantum and select a different task for a context
+    /// handoff. The old task is returned to its queue, but is excluded from
+    /// immediate reselection so a CPU with peers can actually switch. If no
+    /// peer is runnable, the old task remains queued and the caller may fall
+    /// back to its per-CPU idle context.
+    fn handoff(&mut self, cpu: usize, allow_steal: bool) -> (Option<TaskId>, DispatchResult) {
+        if cpu >= self.cpu_count {
+            return (None, DispatchResult::InvalidCpu);
+        }
+        let previous = self.runtime[cpu].current;
+        if previous.is_some() {
+            // `complete` cannot fail here: dispatch owns one slot and the
+            // queue has capacity for the task that just left it.
+            let _ = self.complete(cpu);
+        }
+        (
+            previous,
+            self.dispatch_excluding_mode(cpu, previous, allow_steal),
+        )
     }
 
     /// Return the currently running task to its owning CPU queue.
@@ -513,6 +566,114 @@ pub fn dispatch_current_cpu() -> DispatchResult {
 /// Complete the current quantum on the processor executing this code.
 pub fn complete_current_cpu() -> Option<TaskId> {
     complete_for_cpu(crate::smp::current_cpu_index())
+}
+
+/// Prepare a real register-context handoff for one CPU.
+///
+/// The run-queue lock and task-table lock are held only while selecting task
+/// IDs and taking stable pointers. They are released before assembly runs.
+/// When the CPU has no successor, its saved per-CPU idle context is selected;
+/// this lets an AP return from an IPI handler instead of spinning forever
+/// inside a task that is the only runnable entity.
+pub fn prepare_context_switch_for_cpu(
+    cpu: usize,
+) -> Option<(*mut TaskContext, *const TaskContext)> {
+    with_interrupts_disabled(|| {
+        let slot = PER_CPU_SCHEDULER.get(cpu)?;
+
+        let (previous, result) = {
+            let mut run_queues = MULTICORE_SCHEDULER.lock();
+            // Keep a task pinned to its AP while saving its register frame.
+            // Migration/stealing is still exercised by the metadata stress
+            // path, but a live context cannot be stolen until a later
+            // migration-safe handoff is added.
+            let (previous, result) = run_queues.handoff(cpu, false);
+            (previous, result)
+        };
+        let next = match result {
+            DispatchResult::Dispatched(task_id) | DispatchResult::Stole(task_id) => Some(task_id),
+            DispatchResult::Idle => None,
+            DispatchResult::Busy(_) | DispatchResult::InvalidCpu => return None,
+        };
+        if previous.is_none() && next.is_none() {
+            return None;
+        }
+
+        let mut scheduler = SCHEDULER.lock();
+        let mut state = slot.lock();
+        let idle_context = &mut state.saved_context as *mut TaskContext;
+
+        // The first AP handoff saves the interrupted IPI handler into the
+        // idle context. Subsequent handoffs reuse the slot as the return
+        // continuation after a task yields.
+        let old_ptr = previous
+            .and_then(|task_id| scheduler.task_context_ptr(task_id))
+            .unwrap_or(idle_context);
+
+        let new_ptr = if let Some(next_id) = next {
+            let Some(task_ptr) = scheduler.task_context_ptr(next_id) else {
+                // Do not leave a selected ID marked as running when a task
+                // was removed concurrently between queue and table access.
+                drop(state);
+                drop(scheduler);
+                let _ = MULTICORE_SCHEDULER.lock().complete(cpu);
+                return None;
+            };
+            state.current_task = Some(next_id);
+            state.context_switches += 1;
+            task_ptr as *const TaskContext
+        } else {
+            state.current_task = None;
+            if previous.is_some() {
+                state.context_switches += 1;
+            }
+            idle_context as *const TaskContext
+        };
+
+        Some((old_ptr, new_ptr))
+    })
+}
+
+/// Execute one real context handoff on the current processor.
+///
+/// The AP scheduler loop and AP tasks use this entry point. Scheduler locks
+/// are released before `switch_context` jumps, so the resumed task can acquire
+/// them again without self-deadlocking.
+pub fn switch_current_cpu_context() -> bool {
+    let Some((old_ptr, new_ptr)) = prepare_context_switch_for_cpu(crate::smp::current_cpu_index())
+    else {
+        return false;
+    };
+    #[cfg(target_os = "none")]
+    {
+        static TRACE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+        if TRACE.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 12 {
+            let old = unsafe { *old_ptr };
+            let new = unsafe { *new_ptr };
+            crate::serial_println!(
+                "[sched] context cpu={} old=0x{:X}/rsp=0x{:X}/rip=0x{:X} new=0x{:X}/rsp=0x{:X}/rip=0x{:X}",
+                crate::smp::current_cpu_index(),
+                old_ptr as usize,
+                old.rsp,
+                old.rip,
+                new_ptr as usize,
+                new.rsp,
+                new.rip,
+            );
+        }
+    }
+    // SAFETY: pointers refer to static scheduler task slots or the static
+    // per-CPU idle context; both remain allocated for the kernel lifetime.
+    // Keep interrupts masked across the save/restore window so an IPI cannot
+    // observe a half-written task context or interrupt the assembly handoff.
+    // The matching `sti` runs only when the saved continuation returns to the
+    // AP loop, so a newly entered task starts with a deterministic IF=0 state.
+    #[cfg(target_os = "none")]
+    x86_64::instructions::interrupts::disable();
+    unsafe { context::switch_context(old_ptr, new_ptr) };
+    #[cfg(target_os = "none")]
+    x86_64::instructions::interrupts::enable();
+    true
 }
 
 /// Account one hardware timer quantum for a CPU and run a bounded dispatcher
@@ -888,6 +1049,19 @@ impl Scheduler {
         Some((old_ptr, new_ptr))
     }
 
+    /// Return a raw pointer to a task's saved context.
+    ///
+    /// The scheduler owns every task slot for the lifetime of the kernel;
+    /// callers must hold the scheduler lock while obtaining this pointer and
+    /// release the lock before invoking the assembly switch primitive.
+    fn task_context_ptr(&mut self, id: TaskId) -> Option<*mut TaskContext> {
+        self.tasks
+            .iter_mut()
+            .flatten()
+            .find(|task| task.id == id)
+            .map(|task| &mut task.ctx as *mut TaskContext)
+    }
+
     // -----------------------------------------------------------------------
     // Queries
     // -----------------------------------------------------------------------
@@ -971,12 +1145,11 @@ impl TaskSnapshot {
 /// by another task (deadlock). The scheduler lock is released before
 /// the actual context switch occurs.
 pub fn yield_current() {
-    // APs do not share the BSP's cooperative task cursor. Until their full
-    // register frame switch is enabled, yielding an AP task completes one
-    // local queue quantum and returns to the AP dispatcher.
+    // APs do not share the BSP's cooperative task cursor. Their per-CPU
+    // queue handoff saves/restores the task's callee-saved register context
+    // and falls back to the interrupted IPI handler when no peer is ready.
     if crate::smp::current_cpu_index() != 0 {
-        let _ = dispatch_current_cpu();
-        let _ = complete_current_cpu();
+        let _ = switch_current_cpu_context();
         return;
     }
 

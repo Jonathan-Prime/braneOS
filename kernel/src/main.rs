@@ -325,8 +325,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let queue_cpu_count = sched::configure_multicore(online_cpu_count.max(1));
     let (idle_task, init_task, active_tasks) = sched::with_interrupts_disabled(|| {
         let mut scheduler = sched::SCHEDULER.lock();
-        // The boot task reuses the bootloader's stack — no dedicated stack needed.
-        let idle_task = scheduler.add_task("kernel_idle", sched::Priority::Idle);
+        // Give the idle task a dedicated context as APs can now enter it
+        // through the real per-CPU dispatcher.
+        let idle_task =
+            scheduler.add_task_with_entry("kernel_idle", sched::Priority::Idle, kernel_idle_task);
         // Register init as a real task with its own 16 KiB kernel stack.
         // In a future phase this will jump to user-space.
         let init_task =
@@ -790,6 +792,15 @@ fn kernel_init_task() -> ! {
 
     loop {
         // Cooperatively yield to let other tasks run
+        sched::yield_current();
+    }
+}
+
+/// Dedicated idle task used by both the BSP scheduler and AP run queues.
+/// It deliberately yields instead of halting so the saved `TaskContext`
+/// remains a valid continuation for a later CPU handoff.
+fn kernel_idle_task() -> ! {
+    loop {
         sched::yield_current();
     }
 }

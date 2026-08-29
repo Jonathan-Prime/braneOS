@@ -77,9 +77,10 @@ impl TaskContext {
     ///               of the task's pre-allocated stack.
     /// `entry`     — function address where the task begins executing.
     ///
-    /// Internally we set `rsp = stack_top - 8` so the CPU's `ret`
-    /// instruction inside `switch_context` pops the entry address and
-    /// jumps there, simulating a fresh function call.
+    /// The switch primitive advances the restored stack by one word before
+    /// jumping to `rip` (the saved form points at the caller's return slot).
+    /// Reserve two words here so the initial entry still observes the normal
+    /// System V ABI stack alignment (`rsp % 16 == 8`).
     pub fn new_task(stack_top: u64, entry: u64) -> Self {
         Self {
             rbx: 0,
@@ -88,7 +89,7 @@ impl TaskContext {
             r14: 0,
             r15: 0,
             rbp: stack_top,
-            rsp: stack_top - 8, // space for the "return address"
+            rsp: stack_top - 16, // restore adds one word before entry
             rip: entry,
         }
     }
@@ -141,7 +142,11 @@ pub unsafe extern "C" fn switch_context(
         "mov r14, [rsi + 0x18]",
         "mov r15, [rsi + 0x20]",
         "mov rbp, [rsi + 0x28]",
+        // A saved context's RSP points at the return address left by the
+        // original call. Consume that word before jumping to the continuation
+        // so the resumed function sees the same stack it had after `ret`.
         "mov rsp, [rsi + 0x30]",
+        "add rsp, 8",
         // Load the new task's RIP into rax and jump.
         // We use `jmp` rather than manipulating the stack so that we
         // don't disturb the new task's stack layout.

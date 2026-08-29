@@ -276,6 +276,10 @@ static AP_INTERRUPT_ACK: [core::sync::atomic::AtomicU32; 256] =
     [const { core::sync::atomic::AtomicU32::new(0) }; 256];
 
 #[cfg(target_os = "none")]
+static AP_SCHEDULER_KICK: [core::sync::atomic::AtomicU32; MAX_CPUS] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; MAX_CPUS];
+
+#[cfg(target_os = "none")]
 static CPU_INDEX_BY_APIC_ID: [core::sync::atomic::AtomicU16; 256] =
     [const { core::sync::atomic::AtomicU16::new(UNREGISTERED_CPU) }; 256];
 
@@ -303,6 +307,14 @@ pub fn current_cpu_index() -> usize {
         }
     }
     0
+}
+
+/// Consume one scheduler wake-up request on the current AP.
+#[cfg(target_os = "none")]
+fn take_scheduler_kick(cpu_slot: usize) -> bool {
+    AP_SCHEDULER_KICK
+        .get(cpu_slot)
+        .is_some_and(|kick| kick.swap(0, core::sync::atomic::Ordering::AcqRel) != 0)
 }
 
 #[cfg(target_os = "none")]
@@ -551,12 +563,13 @@ pub fn stress_application_processors(
 #[cfg(target_os = "none")]
 pub fn acknowledge_interrupt_probe() {
     // The same fixed IPI used by the bring-up health check also serves as a
-    // safe scheduler kick once the run queues have been configured. During
-    // early AP startup the coordinator still has one CPU, so this is a
-    // bounded no-op for APs; Phase 2 sends the probe again after enqueuing
-    // tasks and exercises the real dispatch path.
-    let _ = crate::sched::dispatch_current_cpu();
-    let _ = crate::sched::complete_current_cpu();
+    // scheduler kick once the run queues have been configured. The interrupt
+    // itself only records the wake-up; the AP's normal loop performs the
+    // register-context handoff outside the x86-interrupt frame.
+    let cpu_slot = current_cpu_index();
+    if let Some(kick) = AP_SCHEDULER_KICK.get(cpu_slot) {
+        kick.store(1, core::sync::atomic::Ordering::Release);
+    }
     if let Some(apic_id) = crate::apic::current_local_apic_id() {
         AP_INTERRUPT_ACK[apic_id as usize].store(1, core::sync::atomic::Ordering::Release);
     }
@@ -590,6 +603,9 @@ extern "C" fn ap_entry(
     }
     loop {
         x86_64::instructions::hlt();
+        if take_scheduler_kick(cpu_slot as usize) {
+            let _ = crate::sched::switch_current_cpu_context();
+        }
     }
 }
 
