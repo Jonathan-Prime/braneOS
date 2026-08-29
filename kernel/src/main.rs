@@ -355,16 +355,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // probe handler performs one bounded dispatch/complete quantum, which
     // validates the per-CPU runtime path without switching away from the
     // shared bootstrap context while SMP is still being brought up.
-    let dispatch_probe = if let Some(mut plan) = acpi::info().smp {
+    let dispatch_stress = if let Some(mut plan) = acpi::info().smp {
         if let Some(local_apic) = apic::local_apic_handle() {
-            let report = smp::verify_application_processors(local_apic, &mut plan);
+            let report = smp::stress_application_processors(local_apic, &mut plan, 8);
             acpi::set_smp_plan(plan);
             report
         } else {
-            smp::ApInterruptReport::default()
+            smp::ApDispatchStressReport::default()
         }
     } else {
-        smp::ApInterruptReport::default()
+        smp::ApDispatchStressReport::default()
     };
     let runtime = sched::multicore_runtime_snapshots();
     let mut dispatches = 0u64;
@@ -377,11 +377,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     serial_println!(
         "[sched] Multicore dispatch active: attempted={}, responsive={}, dispatched={}, steals={}, idle={}",
-        dispatch_probe.attempted,
-        dispatch_probe.responsive,
+        dispatch_stress.attempted,
+        dispatch_stress.responsive,
         dispatches,
         steals,
         idle_dispatches,
+    );
+    serial_println!(
+        "[sched] Multicore dispatch stress: rounds={}, attempted={}, responsive={}, failed={}, dispatched={}",
+        dispatch_stress.rounds,
+        dispatch_stress.attempted,
+        dispatch_stress.responsive,
+        dispatch_stress.failed,
+        dispatches,
     );
 
     // === Phase 3: Syscalls & IPC ===

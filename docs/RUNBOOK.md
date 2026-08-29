@@ -32,9 +32,10 @@ asignación del BSP. Con más de una vCPU, `AP startup complete` confirma cuánt
 APs respondieron al trampoline INIT/SIPI y terminaron su inicialización GDT/TSS/
 IDT/MSR; `AP interrupt check` confirma que cada AP responde a una IPI dirigida.
 Los que fallen quedan en `Failed` sin detener el BSP. Después de crear las
-colas por CPU, el kernel envía una segunda IPI de despacho: cada AP selecciona
-un quantum, contabiliza si tuvo que robar trabajo y lo devuelve a su cola. La
-línea `Multicore dispatch active` deja esta integración verificable en el log.
+colas por CPU, el kernel envía ocho rondas de IPI de despacho: cada AP
+selecciona un quantum, contabiliza si tuvo que robar trabajo y lo devuelve a su
+cola. Las líneas `Multicore dispatch active` y `Multicore dispatch stress`
+dejan esta integración verificable en el log.
 
 Para reproducirlo con cuatro vCPU: `make smp-test`.
 

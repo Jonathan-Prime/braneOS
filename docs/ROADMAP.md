@@ -234,7 +234,7 @@ físico y ejecución del gate final v1.0.
 | Arranque de Application Processors | 🔄 | ALTA | INIT/SIPI + GDT/TSS/IDT/MSR xAPIC; dispatcher IPI acotado integrado |
 | Estado per-CPU | 🔄 | ALTA | GDT/TSS/IST, stacks, MSRs y contadores runtime por CPU; falta contexto aislado |
 | Scheduler multicore | 🔄 | ALTA | Run queues, menor carga, steal y dispatch/complete integrados; falta cambio de contexto |
-| Sincronización y stress SMP | 🔄 | ALTA | Spinlock de colas y stress concurrente host integrados; falta prueba sostenida en QEMU |
+| Sincronización y stress SMP | 🔄 | ALTA | Spinlock de colas y stress host/QEMU integrados; falta contexto aislado por AP |
 
 **Criterio de salida:** QEMU arranca con al menos 4 vCPU, ejecuta tareas en
 múltiples cores y supera stress tests sin deadlocks ni corrupción.
@@ -247,11 +247,11 @@ y trampoline INIT/SIPI con timeout que arranca APs xAPIC en QEMU (4 vCPU),
 incluyendo GDT/TSS/IST, IDT y MSRs de syscall por AP antes del ACK.
 El plan SMP valida APIC IDs/UIDs, asigna el BSP y registra estados `Online` o
 `Failed`. Las run queues por CPU distribuyen y roban tareas de forma
-determinista. Una IPI dirigida a cada AP ejecuta y contabiliza un quantum de
-dispatch/complete, dejando evidencia `Multicore dispatch active`. El stress
-host con cuatro workers verifica que las tareas no se pierdan ni se dupliquen;
-quedan la prueba sostenida en QEMU, el cambio de contexto aislado por AP y la
-validación de hardware físico.
+determinista. Ocho rondas de IPI dirigida a cada AP ejecutan y contabilizan
+quanta de dispatch/complete, dejando evidencia `Multicore dispatch stress`. El
+stress host con cuatro workers verifica que las tareas no se pierdan ni se
+dupliquen; quedan el cambio de contexto aislado por AP y la validación de
+hardware físico.
 
 ---
 

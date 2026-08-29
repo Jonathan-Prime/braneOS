@@ -112,6 +112,15 @@ pub struct ApInterruptReport {
     pub failed: usize,
 }
 
+/// Aggregate result of repeated APIC scheduler kicks after SMP bring-up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ApDispatchStressReport {
+    pub rounds: usize,
+    pub attempted: usize,
+    pub responsive: usize,
+    pub failed: usize,
+}
+
 impl CpuBootPlan {
     /// Build a deterministic plan from MADT entries without touching APIC
     /// registers or allocating per-CPU memory.
@@ -510,6 +519,29 @@ pub fn verify_application_processors(
         } else {
             let _ = plan.mark_unresponsive(cpu.apic_id);
             report.failed += 1;
+        }
+    }
+    report
+}
+
+/// Exercise the AP interrupt/dispatcher path for several rounds. A failed
+/// round stops the test so an unresponsive AP is not hammered indefinitely;
+/// `verify_application_processors` records the AP as `Failed` in that case.
+#[cfg(target_os = "none")]
+pub fn stress_application_processors(
+    local_apic: crate::apic::LocalApic,
+    plan: &mut CpuBootPlan,
+    rounds: usize,
+) -> ApDispatchStressReport {
+    let mut report = ApDispatchStressReport::default();
+    for _ in 0..rounds.max(1) {
+        let round = verify_application_processors(local_apic, plan);
+        report.rounds += 1;
+        report.attempted += round.attempted;
+        report.responsive += round.responsive;
+        report.failed += round.failed;
+        if round.failed != 0 {
+            break;
         }
     }
     report

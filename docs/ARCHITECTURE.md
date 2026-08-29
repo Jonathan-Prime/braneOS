@@ -293,10 +293,11 @@ reserva una página baja, copia un trampoline real-mode que restaura CR0/CR3/CR4
 EFER, asigna un stack estático por AP y envía INIT + doble SIPI con timeout. Cada
 AP confirmado carga su GDT/TSS/IST, el IDT compartido y sus MSR de syscall antes
 de publicar el ACK; después queda en un bucle seguro con interrupciones
-habilitadas. Una IPI dirigida posterior a la creación de las colas ejecuta un
-quantum acotado en el AP, actualiza su estado runtime (tarea actual,
-despachos, robos e idle) y devuelve la tarea a su cola; el cambio de contexto
-de registros por AP queda reservado para la siguiente iteración.
+habilitadas. Ocho rondas de IPI dirigidas posteriores a la creación de las
+colas ejecutan un quantum acotado en cada AP, actualizan su estado runtime
+(tarea actual, despachos, robos e idle) y devuelven las tareas a sus colas; el
+cambio de contexto de registros por AP queda reservado para la siguiente
+iteración.
 
 ---
 
