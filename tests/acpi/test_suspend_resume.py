@@ -107,11 +107,44 @@ def send_text(qmp: QmpClient, text: str, deadline: float) -> None:
         time.sleep(0.06)
 
 
+def send_text_explicit(qmp: QmpClient, text: str, deadline: float) -> None:
+    """Inject key-down/up pairs without relying on QEMU's virtual key timer.
+
+    This is used after S3 because some QEMU versions do not expire HMP
+    ``sendkey`` holds once the guest virtual clock has crossed suspend.
+    """
+    key_names = {"\n": "ret", " ": "spc"}
+    for character in text:
+        key = key_names.get(character, character)
+        key_event = {"type": "qcode", "data": key}
+        qmp.execute(
+            "input-send-event",
+            {
+                "events": [
+                    {"type": "key", "data": {"down": True, "key": key_event}},
+                ]
+            },
+            deadline,
+        )
+        time.sleep(0.03)
+        qmp.execute(
+            "input-send-event",
+            {
+                "events": [
+                    {"type": "key", "data": {"down": False, "key": key_event}},
+                ]
+            },
+            deadline,
+        )
+        time.sleep(0.03)
+
+
 def run_test(image: Path, timeout: int) -> int:
     deadline = time.monotonic() + timeout
     shell_ready = threading.Event()
     resumed = threading.Event()
     acpi_status = threading.Event()
+    scheduler_resumed = threading.Event()
     failures: list[str] = []
 
     with tempfile.TemporaryDirectory(prefix="brane-acpi-") as temp_dir:
@@ -154,6 +187,8 @@ def run_test(image: Path, timeout: int) -> int:
                     resumed.set()
                 if "ACPI initialized: true" in line:
                     acpi_status.set()
+                if "[sched] Resumed." in line:
+                    scheduler_resumed.set()
                 for marker in FAIL_STRINGS:
                     if marker in line:
                         failures.append(marker)
@@ -198,10 +233,16 @@ def run_test(image: Path, timeout: int) -> int:
             if not shell_ready.wait(max(0, deadline - time.monotonic())):
                 raise TimeoutError("shell prompt did not return after resume")
             shell_ready.clear()
-            send_text(qmp, "acpi\n", deadline)
+            send_text_explicit(qmp, "acpi\n", deadline)
             if not acpi_status.wait(max(0, deadline - time.monotonic())):
                 raise TimeoutError("shell did not execute a command after resume")
             passed("brsh accepted a command after resume")
+
+            shell_ready.clear()
+            send_text_explicit(qmp, "yield\n", deadline)
+            if not scheduler_resumed.wait(max(0, deadline - time.monotonic())):
+                raise TimeoutError("BSP did not resume its CPU-local context after yield")
+            passed("BSP restored its isolated scheduler context after yield")
             return 0
         except (OSError, RuntimeError, TimeoutError) as error:
             failed(str(error))

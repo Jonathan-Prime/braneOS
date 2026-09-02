@@ -217,6 +217,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
             f"[smp] AP interrupt check: attempted={cpus - 1}, responsive={cpus - 1}, failed=0",
             "[sched] Multicore dispatch active:",
             "[sched] Multicore dispatch stress:",
+            f"[sched] Multicore task execution: expected={cpus - 1}, observed={cpus - 1}",
         ])
     firmware_vars: Path | None = None
     if media_type == "iso":

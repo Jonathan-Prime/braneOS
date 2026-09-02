@@ -1,6 +1,6 @@
 # RUNBOOK.md - Build, CI y ejecucion local
 
-> Estado: operativo para desarrollo local. Última actualización: 2026-08-28.
+> Estado: operativo para desarrollo local. Última actualización: 2026-09-01.
 > Este documento describe el flujo
 > actual del repositorio, no el release final instalable.
 
@@ -32,10 +32,13 @@ asignación del BSP. Con más de una vCPU, `AP startup complete` confirma cuánt
 APs respondieron al trampoline INIT/SIPI y terminaron su inicialización GDT/TSS/
 IDT/MSR; `AP interrupt check` confirma que cada AP responde a una IPI dirigida.
 Los que fallen quedan en `Failed` sin detener el BSP. Después de crear las
-colas por CPU, el kernel envía ocho rondas de IPI de despacho: cada AP
-selecciona un quantum, contabiliza si tuvo que robar trabajo y lo devuelve a su
-cola. Las líneas `Multicore dispatch active` y `Multicore dispatch stress`
-dejan esta integración verificable en el log.
+colas por CPU, el kernel fija un worker a cada AP y envía ocho rondas de IPI de
+despacho. Cada IPI restaura el stack y los registros de una tarea, ejecuta un
+quantum y vuelve al contexto idle privado del CPU. La línea
+`Multicore task execution` exige `expected=3, observed=3` y máscara `0x0000000E`
+en la prueba de cuatro vCPU; `Multicore dispatch stress` conserva el conteo de
+rondas y respuestas. El BSP usa el mismo aislamiento cuando `brsh` ejecuta
+`yield`.
 
 Para reproducirlo con cuatro vCPU: `make smp-test`.
 
@@ -175,7 +178,9 @@ colas IPC. No requiere QEMU y sus fallos son reproducibles.
 
 El test ACPI controla QEMU mediante QMP: ordena `suspend` desde `brsh`, espera
 los eventos `SUSPEND` y `WAKEUP`, envía `system_wakeup` y confirma que el shell
-y el teclado siguen operativos tras restaurar la plataforma.
+y el teclado siguen operativos tras restaurar la plataforma. Finalmente ejecuta
+`yield` y exige `[sched] Resumed.`, validando que CPU0 restaura su continuación
+per-CPU después de S3.
 
 ---
 

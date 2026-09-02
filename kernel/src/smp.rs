@@ -602,9 +602,15 @@ extern "C" fn ap_entry(
         }
     }
     loop {
-        x86_64::instructions::hlt();
+        // Close the classic check-then-halt lost-wakeup window: with local
+        // interrupts masked, either consume an already pending scheduler
+        // kick or atomically enable interrupts while entering HLT. A fixed
+        // IPI can therefore never leave an AP asleep with work pending.
+        x86_64::instructions::interrupts::disable();
         if take_scheduler_kick(cpu_slot as usize) {
             let _ = crate::sched::switch_current_cpu_context();
+        } else {
+            x86_64::instructions::interrupts::enable_and_hlt();
         }
     }
 }

@@ -27,6 +27,10 @@ pub const CONFIG: BootloaderConfig = {
 entry_point!(kernel_main, config = &CONFIG);
 
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+/// APs that have entered a real scheduled task context during boot.
+static SMP_WORKER_CPU_MASK: AtomicU32 = AtomicU32::new(0);
 
 // --- Hardware-specific modules (binary-only, not in lib) ---
 mod idt;
@@ -323,23 +327,51 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .map(|plan| plan.online_cpu_count())
         .unwrap_or(1);
     let queue_cpu_count = sched::configure_multicore(online_cpu_count.max(1));
-    let (idle_task, init_task, active_tasks) = sched::with_interrupts_disabled(|| {
-        let mut scheduler = sched::SCHEDULER.lock();
-        // Give the idle task a dedicated context as APs can now enter it
-        // through the real per-CPU dispatcher.
-        let idle_task =
-            scheduler.add_task_with_entry("kernel_idle", sched::Priority::Idle, kernel_idle_task);
-        // Register init as a real task with its own 16 KiB kernel stack.
-        // In a future phase this will jump to user-space.
-        let init_task =
-            scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
-        (idle_task, init_task, scheduler.active_count())
-    });
+    let (idle_task, init_task, smp_worker_tasks, active_tasks) =
+        sched::with_interrupts_disabled(|| {
+            let mut scheduler = sched::SCHEDULER.lock();
+            // Give the idle task a dedicated context as APs can now enter it
+            // through the real per-CPU dispatcher.
+            let idle_task = scheduler.add_task_with_entry(
+                "kernel_idle",
+                sched::Priority::Idle,
+                kernel_idle_task,
+            );
+            // Register init as a real task with its own 16 KiB kernel stack.
+            // In a future phase this will jump to user-space.
+            let init_task =
+                scheduler.add_task_with_entry("init", sched::Priority::System, kernel_init_task);
+            let mut smp_worker_tasks = [None; smp::MAX_CPUS];
+            for task in smp_worker_tasks.iter_mut().take(queue_cpu_count).skip(1) {
+                *task = scheduler.add_task_with_entry(
+                    "smp_worker",
+                    sched::Priority::High,
+                    smp_worker_task,
+                );
+            }
+            (
+                idle_task,
+                init_task,
+                smp_worker_tasks,
+                scheduler.active_count(),
+            )
+        });
     if let Some(task_id) = idle_task {
-        let _ = sched::enqueue_task(task_id);
+        let _ = sched::enqueue_task_on_cpu(0, task_id);
     }
     if let Some(task_id) = init_task {
-        let _ = sched::enqueue_task(task_id);
+        let init_cpu = usize::from(queue_cpu_count > 1);
+        let _ = sched::enqueue_task_on_cpu(init_cpu, task_id);
+    }
+    for (cpu, task_id) in smp_worker_tasks
+        .iter()
+        .enumerate()
+        .take(queue_cpu_count)
+        .skip(1)
+    {
+        if let Some(task_id) = task_id {
+            let _ = sched::enqueue_task_on_cpu(cpu, *task_id);
+        }
     }
     serial_println!(
         "[sched] Scheduler ready: {} tasks, cooperative context switching enabled.",
@@ -350,10 +382,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         queue_cpu_count
     );
 
-    // Kick the online APs after their queues contain real tasks. The APIC
-    // probe handler performs one bounded dispatch/complete quantum, which
-    // validates the per-CPU runtime path without switching away from the
-    // shared bootstrap context while SMP is still being brought up.
+    // Kick the online APs after their queues contain real tasks. The probe
+    // handler wakes the AP loop, which performs one bounded stack/register
+    // handoff outside the interrupt frame and then returns to its idle context.
     let dispatch_stress = if let Some(mut plan) = acpi::info().smp {
         if let Some(local_apic) = apic::local_apic_handle() {
             let report = smp::stress_application_processors(local_apic, &mut plan, 8);
@@ -389,6 +420,25 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         dispatch_stress.responsive,
         dispatch_stress.failed,
         dispatches,
+    );
+    let expected_ap_mask = if queue_cpu_count == smp::MAX_CPUS {
+        !1u32
+    } else {
+        ((1u32 << queue_cpu_count) - 1) & !1
+    };
+    let mut observed_ap_mask = SMP_WORKER_CPU_MASK.load(Ordering::Acquire) & expected_ap_mask;
+    for _ in 0..2_000_000 {
+        if observed_ap_mask == expected_ap_mask {
+            break;
+        }
+        core::hint::spin_loop();
+        observed_ap_mask = SMP_WORKER_CPU_MASK.load(Ordering::Acquire) & expected_ap_mask;
+    }
+    serial_println!(
+        "[sched] Multicore task execution: expected={}, observed={}, mask=0x{:08X}",
+        expected_ap_mask.count_ones(),
+        observed_ap_mask.count_ones(),
+        observed_ap_mask,
     );
 
     // === Phase 3: Syscalls & IPC ===
@@ -800,6 +850,19 @@ fn kernel_init_task() -> ! {
 /// It deliberately yields instead of halting so the saved `TaskContext`
 /// remains a valid continuation for a later CPU handoff.
 fn kernel_idle_task() -> ! {
+    loop {
+        sched::yield_current();
+    }
+}
+
+/// Boot-time worker pinned to one AP. Reaching this entry point proves that
+/// the CPU restored a task's private stack/register context, rather than only
+/// manipulating run-queue metadata in the IPI handler.
+fn smp_worker_task() -> ! {
+    let cpu = smp::current_cpu_index();
+    if cpu < u32::BITS as usize {
+        SMP_WORKER_CPU_MASK.fetch_or(1u32 << cpu, Ordering::Release);
+    }
     loop {
         sched::yield_current();
     }

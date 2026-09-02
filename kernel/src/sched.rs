@@ -407,12 +407,18 @@ impl MultiCoreScheduler {
         DispatchResult::Idle
     }
 
-    /// End the current quantum and select a different task for a context
-    /// handoff. The old task is returned to its queue, but is excluded from
-    /// immediate reselection so a CPU with peers can actually switch. If no
-    /// peer is runnable, the old task remains queued and the caller may fall
-    /// back to its per-CPU idle context.
-    fn handoff(&mut self, cpu: usize, allow_steal: bool) -> (Option<TaskId>, DispatchResult) {
+    /// Prepare one bounded dispatcher handoff.
+    ///
+    /// An idle CPU may enter exactly one task. A running task always returns
+    /// to the CPU-local idle continuation when it yields, even if peers are
+    /// ready on the same queue. This keeps an IPI kick bounded to one quantum
+    /// and lets the AP loop consume subsequent interrupts before selecting
+    /// more work.
+    fn bounded_handoff(
+        &mut self,
+        cpu: usize,
+        allow_steal: bool,
+    ) -> (Option<TaskId>, DispatchResult) {
         if cpu >= self.cpu_count {
             return (None, DispatchResult::InvalidCpu);
         }
@@ -421,11 +427,9 @@ impl MultiCoreScheduler {
             // `complete` cannot fail here: dispatch owns one slot and the
             // queue has capacity for the task that just left it.
             let _ = self.complete(cpu);
+            return (previous, DispatchResult::Idle);
         }
-        (
-            previous,
-            self.dispatch_excluding_mode(cpu, previous, allow_steal),
-        )
+        (None, self.dispatch_excluding_mode(cpu, None, allow_steal))
     }
 
     /// Return the currently running task to its owning CPU queue.
@@ -510,6 +514,15 @@ pub fn cpu_scheduler_snapshot(cpu: usize) -> Option<CpuSchedulerSnapshot> {
     with_interrupts_disabled(|| PER_CPU_SCHEDULER.get(cpu).map(|slot| *slot.lock()))
 }
 
+/// Whether a logical CPU owns a fully initialized scheduler slot.
+pub fn cpu_scheduler_is_initialized(cpu: usize) -> bool {
+    with_interrupts_disabled(|| {
+        PER_CPU_SCHEDULER
+            .get(cpu)
+            .is_some_and(|slot| slot.lock().initialized)
+    })
+}
+
 /// Select the next task for a logical CPU, falling back to a steal from the
 /// busiest peer when its own queue is empty. The returned ID is metadata only;
 /// callers must still coordinate with `Scheduler::prepare_switch` before
@@ -580,6 +593,9 @@ pub fn prepare_context_switch_for_cpu(
 ) -> Option<(*mut TaskContext, *const TaskContext)> {
     with_interrupts_disabled(|| {
         let slot = PER_CPU_SCHEDULER.get(cpu)?;
+        if !slot.lock().initialized {
+            return None;
+        }
 
         let (previous, result) = {
             let mut run_queues = MULTICORE_SCHEDULER.lock();
@@ -587,7 +603,7 @@ pub fn prepare_context_switch_for_cpu(
             // Migration/stealing is still exercised by the metadata stress
             // path, but a live context cannot be stolen until a later
             // migration-safe handoff is added.
-            let (previous, result) = run_queues.handoff(cpu, false);
+            let (previous, result) = run_queues.bounded_handoff(cpu, false);
             (previous, result)
         };
         let next = match result {
@@ -1145,10 +1161,12 @@ impl TaskSnapshot {
 /// by another task (deadlock). The scheduler lock is released before
 /// the actual context switch occurs.
 pub fn yield_current() {
-    // APs do not share the BSP's cooperative task cursor. Their per-CPU
-    // queue handoff saves/restores the task's callee-saved register context
-    // and falls back to the interrupted IPI handler when no peer is ready.
-    if crate::smp::current_cpu_index() != 0 {
+    // Once the per-CPU coordinator is initialized, every processor (including
+    // the BSP) saves its idle continuation in a private slot. This prevents a
+    // BSP shell yield from overwriting a task context currently owned by an
+    // AP. The legacy cursor remains only as an early-boot fallback.
+    let cpu = crate::smp::current_cpu_index();
+    if cpu_scheduler_is_initialized(cpu) {
         let _ = switch_current_cpu_context();
         return;
     }
@@ -1265,11 +1283,38 @@ mod multicore_tests {
     fn cpu_local_scheduler_tracks_timer_without_touching_bsp() {
         let cpu = crate::smp::MAX_CPUS - 1;
         assert!(init_cpu_scheduler(cpu));
+        assert!(cpu_scheduler_is_initialized(cpu));
         assert_eq!(timer_tick_for_cpu(cpu), DispatchResult::InvalidCpu);
         let snapshot = cpu_scheduler_snapshot(cpu).unwrap();
         assert!(snapshot.initialized);
         assert_eq!(snapshot.timer_ticks, 1);
         assert_eq!(snapshot.current_task, None);
         assert_eq!(snapshot.context_switches, 0);
+    }
+
+    #[test]
+    fn bounded_handoff_returns_to_idle_between_tasks() {
+        let mut scheduler = MultiCoreScheduler::new();
+        scheduler.configure(1);
+        scheduler.enqueue(1).unwrap();
+        scheduler.enqueue(2).unwrap();
+
+        assert_eq!(
+            scheduler.bounded_handoff(0, false),
+            (None, DispatchResult::Dispatched(1))
+        );
+        assert_eq!(scheduler.runtime(0).unwrap().current, Some(1));
+
+        assert_eq!(
+            scheduler.bounded_handoff(0, false),
+            (Some(1), DispatchResult::Idle)
+        );
+        assert_eq!(scheduler.runtime(0).unwrap().current, None);
+        assert_eq!(scheduler.queue_load(0), Some(2));
+
+        assert_eq!(
+            scheduler.bounded_handoff(0, false),
+            (None, DispatchResult::Dispatched(2))
+        );
     }
 }

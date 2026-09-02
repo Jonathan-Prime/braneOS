@@ -292,27 +292,29 @@ estado (`Discovered`, `Starting`, `Online`, `Failed`) para los APs. En xAPIC,
 reserva una página baja, copia un trampoline real-mode que restaura CR0/CR3/CR4 y
 EFER, asigna un stack estático por AP y envía INIT + doble SIPI con timeout. Cada
 AP confirmado carga su GDT/TSS/IST, el IDT compartido y sus MSR de syscall antes
-de publicar el ACK; después queda en un bucle seguro con interrupciones
-habilitadas. Ocho rondas de IPI dirigidas posteriores a la creación de las
-colas ejecutan un quantum acotado en cada AP, actualizan su estado runtime
-(tarea actual, despachos, robos e idle) y devuelven las tareas a sus colas; el
-cambio de contexto de registros por AP queda reservado para la siguiente
-iteración.
+de publicar el ACK. Su bucle comprueba el kick con interrupciones enmascaradas y
+usa `enable_and_hlt` cuando no hay trabajo, cerrando la ventana entre comprobar
+la cola y entrar en HLT. Ocho rondas de IPI posteriores a la creación de las
+colas ejecutan un quantum acotado en cada AP, restauran el stack y los registros
+de una tarea real, actualizan su estado runtime (tarea actual, despachos, robos
+e idle) y regresan al contexto idle privado antes del siguiente quantum.
 
 ---
 
 #### 5.2.3 Scheduler
 
 Planificador de tareas con soporte para prioridades y quantum configurable.
-`Scheduler` conserva el cambio de contexto cooperativo del BSP; `MultiCoreScheduler`
+`Scheduler` conserva la tabla y los contextos de tarea; `MultiCoreScheduler`
 mantiene run queues fijas por CPU, asigna nuevas tareas a la cola menos cargada y
-permite que un CPU ocioso robe una tarea de su vecino más cargado. La API de
-afinidad permite fijar tareas durante el arranque y las pruebas. Cada CPU
-mantiene un estado runtime y un slot de scheduler protegido de forma
-independiente, con contador de ticks y contexto guardado propio. El dispatcher
-retira la tarea mientras corre para evitar dobles ejecuciones; `complete` la
-devuelve a la cola al terminar el quantum. La integración del cambio de
-contexto de registros por AP queda pendiente de la siguiente iteración.
+permite que un CPU ocioso robe una tarea que no está ejecutándose. La API de
+afinidad fija los workers de arranque a sus APs. Cada CPU, incluido el BSP,
+mantiene un slot protegido independiente con contador de ticks, tarea actual y
+continuación idle propia. El dispatcher retira la tarea mientras corre para
+evitar dobles ejecuciones y el cambio cooperativo guarda/restaura `rbx`,
+`r12–r15`, `rbp`, `rsp` y `rip` sobre el stack privado de la tarea. Al ceder, la
+tarea vuelve primero al contexto idle del CPU; así una IPI siempre representa
+un único quantum y un `yield` del shell en el BSP no puede sobrescribir el
+contexto que ejecuta un AP.
 
 ```rust
 pub trait Scheduler {
