@@ -651,12 +651,48 @@ pub trait Driver: Send + Sync {
 | Driver | Estado | IRQ | Notas |
 |--------|--------|-----|-------|
 | Serial (UART 16550) | ✅ Implementado | 4 | Logging temprano, COM1 |
-| Timer (PIT / APIC) | 🔲 Pendiente | 0/32 | Base para scheduler |
-| Keyboard (PS/2) | 🔲 Pendiente | 1/33 | Entrada básica |
-| Disk (ATA/AHCI) | 🔲 Pendiente | 14 | Almacenamiento |
-| Network (virtio-net) | 🔲 Pendiente | — | Para brane protocol |
+| Timer (PIT / APIC) | ✅ Implementado | 0/32 | Ticks y EOI LAPIC/PIC |
+| Keyboard (PS/2) | ✅ Implementado | 1/33 | Entrada TTY básica |
+| Block layer | 🔄 Base integrada | — | Registry y dispatch sectorial; falta transporte físico |
+| Disk (virtio-blk/USB) | 🔲 Pendiente | — | Primer backend del block layer |
+| Network (virtio-net) | ✅ Base integrada | PCI | Discovery compartido + transporte legacy I/O |
 | USB | 🔲 Futuro | — | Para dispositivos externos |
 | Bluetooth | 🔲 Futuro | — | Para mobile companion |
+
+### 7.3 Inventario PCI
+
+`pci.rs` implementa Configuration Mechanism #1 con el par CF8/CFC protegido por
+un spinlock global, de modo que dos CPUs no pueden intercalar dirección y datos.
+El walker parte del bus raíz, sigue bridges PCI-to-PCI, inspecciona hasta ocho
+funciones cuando el header marca un dispositivo multifunción y conserva hasta
+256 funciones en almacenamiento estático. Cada descriptor incluye clase,
+subclase, IRQ, subsystem IDs y seis BAR decodificados como I/O, MMIO32 o MMIO64.
+El inventario se llena in-place para no consumir el stack pequeño de boot.
+
+La abstracción `PciConfigAccess` permite probar topologías y BARs con config
+space en memoria. El backend ECAM/MCFG y el mapeo MMIO con tamaños obtenidos por
+probe forman el siguiente incremento de PCIe.
+
+### 7.4 Block layer
+
+Los controladores de almacenamiento implementan una interfaz sectorial común:
+
+```rust
+pub trait BlockDevice: Send + Sync {
+    fn name(&self) -> &str;
+    fn block_size(&self) -> u32;
+    fn block_count(&self) -> u64;
+    fn read_blocks(&self, lba: u64, buffer: &mut [u8]) -> Result<(), BlockError>;
+    fn write_blocks(&self, lba: u64, data: &[u8]) -> Result<(), BlockError>;
+    fn flush(&self) -> Result<(), BlockError>;
+}
+```
+
+`BlockRegistry` admite 16 dispositivos con IDs estables y no entrega una
+operación al driver hasta verificar geometría, múltiplos del tamaño de bloque,
+overflow de LBA, límites y política read-only. Los backends sincronizan su
+controlador internamente, lo que permite llamadas desde CPUs diferentes sin
+exponer detalles de virtqueue, USB o DMA al VFS/FAT32.
 
 ---
 

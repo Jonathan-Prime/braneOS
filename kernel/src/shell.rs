@@ -16,7 +16,7 @@ extern crate alloc;
 
 use crate::apic;
 use crate::{
-    acpi, ai, audit, brane, dns, memory, module_loader, net, process, sched, security,
+    acpi, ai, audit, block, brane, dns, memory, module_loader, net, pci, process, sched, security,
     serial_println, socket, tty, vfs,
 };
 
@@ -42,6 +42,8 @@ pub fn execute(line: &str) {
         "help" => cmd_help(),
         "ps" => cmd_ps(),
         "mem" => cmd_mem(),
+        "pci" => cmd_pci(),
+        "block" => cmd_block(),
         "lsmod" => cmd_lsmod(),
         "brane" => cmd_brane(args),
         "ai" => cmd_ai(args),
@@ -77,6 +79,8 @@ fn cmd_help() {
     tty::tty_println("  help          Show this help");
     tty::tty_println("  ps            List processes");
     tty::tty_println("  mem           Memory statistics");
+    tty::tty_println("  pci           List discovered PCI functions");
+    tty::tty_println("  block         List registered block devices");
     tty::tty_println("  sched         Scheduler tasks + context info");
     tty::tty_println("  yield         Cooperatively yield current task");
     tty::tty_println("  lsmod         List loaded modules");
@@ -134,6 +138,67 @@ fn cmd_mem() {
         memory::heap::HEAP_SIZE / 1024
     );
     tty::tty_print(c.as_str());
+}
+
+fn cmd_pci() {
+    use core::fmt::Write;
+
+    let inventory = pci::PCI_INVENTORY.lock();
+    let mut heading_buffer = [0u8; 96];
+    let mut heading = WriteBuf::new(&mut heading_buffer);
+    let _ = writeln!(
+        heading,
+        "PCI: {} function(s), {} bus(es), overflow={}",
+        inventory.len(),
+        inventory.buses_scanned(),
+        inventory.overflowed()
+    );
+    tty::tty_print(heading.as_str());
+    tty::tty_println("BDF       VENDOR:DEVICE  CLASS     IRQ  BAR0");
+    for device in inventory.devices() {
+        let mut line_buffer = [0u8; 160];
+        let mut line = WriteBuf::new(&mut line_buffer);
+        let _ = write!(
+            line,
+            "{:02x}:{:02x}.{}  {:04x}:{:04x}     {:02x}:{:02x}    {:<3}  {:?}",
+            device.address.bus,
+            device.address.device,
+            device.address.function,
+            device.vendor_id,
+            device.device_id,
+            device.class_code,
+            device.subclass,
+            device.interrupt_line,
+            device.bars[0],
+        );
+        tty::tty_println(line.as_str());
+    }
+}
+
+fn cmd_block() {
+    use core::fmt::Write;
+
+    let registry = block::BLOCK_REGISTRY.lock();
+    let snapshot = registry.snapshot();
+    if registry.is_empty() {
+        tty::tty_println("No block devices registered.");
+        return;
+    }
+    tty::tty_println("ID   NAME                     BLOCKS       SIZE  RO");
+    for device in snapshot.iter().flatten() {
+        let mut line_buffer = [0u8; 128];
+        let mut line = WriteBuf::new(&mut line_buffer);
+        let _ = write!(
+            line,
+            "{:<4} {:<24} {:<12} {:<5} {}",
+            device.id,
+            device.name(),
+            device.block_count,
+            device.block_size,
+            device.read_only,
+        );
+        tty::tty_println(line.as_str());
+    }
 }
 
 fn cmd_sched() {

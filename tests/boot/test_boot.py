@@ -49,6 +49,8 @@ DEFAULT_TIMEOUT = int(os.environ.get("BOOT_TIMEOUT", "60"))
 REQUIRED_STRINGS = [
     "Brane OS",   # kernel banner
     "[acpi] ACPI subsystem initialized",  # Phase 10 power management
+    "[pci]  Enumeration complete",  # Phase 13 shared hardware inventory
+    "[block] Block layer ready",  # Phase 13 storage abstraction
     "brane>",     # brsh prompt (signals full userland init)
 ]
 

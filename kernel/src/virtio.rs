@@ -14,106 +14,50 @@
 use spin::Mutex;
 use x86_64::instructions::port::Port;
 
-// -----------------------------------------------------------------------
-// PCI Configuration Space Access
-// -----------------------------------------------------------------------
-
-const PCI_CONFIG_ADDR: u16 = 0xCF8;
-const PCI_CONFIG_DATA: u16 = 0xCFC;
+pub use crate::pci::PciDevice;
 
 /// Virtio vendor/device IDs
 const VIRTIO_VENDOR_ID: u16 = 0x1AF4;
-const VIRTIO_NET_DEVICE_ID_RANGE: core::ops::RangeInclusive<u16> = 0x1000..=0x1041;
-// Subsystem device ID for network: 1
+const VIRTIO_NET_TRANSITIONAL_DEVICE_ID: u16 = 0x1000;
+const VIRTIO_NET_MODERN_DEVICE_ID: u16 = 0x1041;
+const VIRTIO_BLOCK_TRANSITIONAL_DEVICE_ID: u16 = 0x1001;
+const VIRTIO_BLOCK_MODERN_DEVICE_ID: u16 = 0x1042;
 const VIRTIO_NET_SUBSYSTEM: u16 = 1;
 
-/// Read a 32-bit value from PCI configuration space.
-fn pci_config_read32(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
-    let address: u32 = 0x8000_0000
-        | ((bus as u32) << 16)
-        | ((device as u32) << 11)
-        | ((function as u32) << 8)
-        | ((offset as u32) & 0xFC);
-
-    unsafe {
-        let mut addr_port = Port::<u32>::new(PCI_CONFIG_ADDR);
-        let mut data_port = Port::<u32>::new(PCI_CONFIG_DATA);
-        addr_port.write(address);
-        data_port.read()
-    }
-}
-
-/// Read a 16-bit value from PCI configuration space.
-fn pci_config_read16(bus: u8, device: u8, function: u8, offset: u8) -> u16 {
-    let val32 = pci_config_read32(bus, device, function, offset & 0xFC);
-    ((val32 >> ((offset & 2) * 8)) & 0xFFFF) as u16
-}
-
-// -----------------------------------------------------------------------
-// PCI Device
-// -----------------------------------------------------------------------
-
-/// A discovered PCI device.
-#[derive(Debug, Clone, Copy)]
-pub struct PciDevice {
-    pub bus: u8,
-    pub device: u8,
-    pub function: u8,
-    pub vendor_id: u16,
-    pub device_id: u16,
-    pub subsystem_id: u16,
-    pub bar0: u32,
-    pub irq_line: u8,
-}
-
-impl PciDevice {
-    /// Read BAR0 (I/O port base address).
-    fn read_bar0(bus: u8, device: u8, function: u8) -> u32 {
-        pci_config_read32(bus, device, function, 0x10) & 0xFFFF_FFFC
-    }
-
-    /// Read the IRQ line.
-    fn read_irq(bus: u8, device: u8, function: u8) -> u8 {
-        (pci_config_read32(bus, device, function, 0x3C) & 0xFF) as u8
-    }
-
-    /// Read subsystem ID.
-    fn read_subsystem(bus: u8, device: u8, function: u8) -> u16 {
-        pci_config_read16(bus, device, function, 0x2E)
-    }
-}
-
-/// Scan PCI bus 0 for a virtio-net device.
+/// Find a virtio-net function in the shared PCI inventory.
 pub fn find_virtio_net() -> Option<PciDevice> {
-    for device in 0..32u8 {
-        let vendor_id = pci_config_read16(0, device, 0, 0x00);
-        if vendor_id == 0xFFFF {
-            continue; // No device
-        }
+    crate::pci::find_device(|device| {
+        device.vendor_id == VIRTIO_VENDOR_ID
+            && (device.device_id == VIRTIO_NET_MODERN_DEVICE_ID
+                || (device.device_id == VIRTIO_NET_TRANSITIONAL_DEVICE_ID
+                    && device.subsystem_id == VIRTIO_NET_SUBSYSTEM))
+    })
+}
 
-        let device_id = pci_config_read16(0, device, 0, 0x02);
+/// Find a virtio block controller. Transport initialization lands in the next
+/// Phase 13 slice; discovery is shared with every other PCI driver now.
+pub fn find_virtio_block() -> Option<PciDevice> {
+    crate::pci::find_device(|device| {
+        device.vendor_id == VIRTIO_VENDOR_ID
+            && matches!(
+                device.device_id,
+                VIRTIO_BLOCK_TRANSITIONAL_DEVICE_ID | VIRTIO_BLOCK_MODERN_DEVICE_ID
+            )
+    })
+}
 
-        if vendor_id == VIRTIO_VENDOR_ID && VIRTIO_NET_DEVICE_ID_RANGE.contains(&device_id) {
-            let subsystem_id = PciDevice::read_subsystem(0, device, 0);
-            // Check subsystem for network (1) or accept transitional devices
-            if subsystem_id == VIRTIO_NET_SUBSYSTEM || device_id == 0x1000 {
-                let bar0 = PciDevice::read_bar0(0, device, 0);
-                let irq_line = PciDevice::read_irq(0, device, 0);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VirtioInitError {
+    MissingLegacyIoBar,
+    IoBaseOutOfRange,
+}
 
-                return Some(PciDevice {
-                    bus: 0,
-                    device,
-                    function: 0,
-                    vendor_id,
-                    device_id,
-                    subsystem_id,
-                    bar0,
-                    irq_line,
-                });
-            }
-        }
-    }
-    None
+/// Return BAR0 as a legacy virtio I/O-port base.
+pub fn legacy_io_base(device: PciDevice) -> Result<u16, VirtioInitError> {
+    let Some(crate::pci::PciBar::Io { base }) = device.bar(0) else {
+        return Err(VirtioInitError::MissingLegacyIoBar);
+    };
+    u16::try_from(base).map_err(|_| VirtioInitError::IoBaseOutOfRange)
 }
 
 // -----------------------------------------------------------------------
@@ -197,16 +141,7 @@ pub struct VirtioNetDevice {
 impl VirtioNetDevice {
     pub const fn empty() -> Self {
         Self {
-            pci: PciDevice {
-                bus: 0,
-                device: 0,
-                function: 0,
-                vendor_id: 0,
-                device_id: 0,
-                subsystem_id: 0,
-                bar0: 0,
-                irq_line: 0,
-            },
+            pci: PciDevice::EMPTY,
             mac: [0; 6],
             io_base: 0,
             initialized: false,
@@ -214,9 +149,9 @@ impl VirtioNetDevice {
     }
 
     /// Initialize the virtio-net device via legacy PCI I/O ports.
-    pub fn init(&mut self, pci: PciDevice) {
+    pub fn init(&mut self, pci: PciDevice) -> Result<(), VirtioInitError> {
         self.pci = pci;
-        self.io_base = pci.bar0 as u16;
+        self.io_base = legacy_io_base(pci)?;
 
         unsafe {
             let base = self.io_base;
@@ -254,6 +189,7 @@ impl VirtioNetDevice {
         }
 
         self.initialized = true;
+        Ok(())
     }
 
     /// Format MAC address as string.

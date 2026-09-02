@@ -40,8 +40,9 @@ mod pic;
 // --- Re-import shared modules from the lib crate ---
 use brane_os_kernel::serial_println;
 use brane_os_kernel::{
-    acpi, ai, apic, audit, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net, process,
-    ramfs, sched, security, serial, shell, smp, socket, syscall, tty, usermode, vfs,
+    acpi, ai, apic, audit, block, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net,
+    pci, process, ramfs, sched, security, serial, shell, smp, socket, syscall, tty, usermode, vfs,
+    virtio,
 };
 
 // -----------------------------------------------------------------------
@@ -694,10 +695,29 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // === Phase 9: Networking ===
     serial_println!("[boot] Phase 9: Networking...");
+    let (pci_functions, pci_buses, pci_overflowed) = pci::init();
+    serial_println!(
+        "[pci]  Enumeration complete: {} function(s) across {} bus(es), overflow={}",
+        pci_functions,
+        pci_buses,
+        pci_overflowed,
+    );
+    let registered_blocks = block::BLOCK_REGISTRY.lock().len();
+    serial_println!(
+        "[block] Block layer ready: {} registered device(s).",
+        registered_blocks
+    );
+    if let Some(controller) = virtio::find_virtio_block() {
+        serial_println!(
+            "[block] virtio-blk controller discovered at PCI {:02x}:{:02x}.{}; transport pending.",
+            controller.address.bus,
+            controller.address.device,
+            controller.address.function,
+        );
+    }
     let _net_available = net::init();
     dns::init();
     {
-        let _ = net::init(); // Initialize networking
         let _ = socket::SOCKET_TABLE.lock(); // Initialize socket table
         let _ = dns::DNS.lock(); // Initialize DNS resolver
 

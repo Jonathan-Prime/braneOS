@@ -18,7 +18,14 @@
  ─────────────────────────────────────────────────────┼─────────────────────────────────────────────────▶
 ```
 
-**Foco actual:** Fase 12 — activación incremental de APIC y preparación SMP.
+**Foco actual:** Fase 13 — transporte virtio-blk, DMA y primer dispositivo de bloques real.
+
+### Disciplina de cambios por fase
+
+Cada incremento verificable se registra en un commit independiente que nombra
+la fase o el subsistema afectado. El mismo commit actualiza este roadmap con el
+estado, la evidencia de pruebas y el siguiente corte; una fase solo pasa a
+completada cuando satisface su criterio de salida.
 
 ---
 
@@ -268,16 +275,26 @@ físico se mantiene en la matriz de release de la Fase 11.
 
 | Componente | Estado | Prioridad | Dependencia |
 |-----------|--------|-----------|-------------|
-| Enumeración PCI/PCIe robusta | 🔲 | ALTA | Config space y BAR mapping |
+| Enumeración PCI/PCIe robusta | 🔄 | ALTA | CF8/CFC, bridges, multifunction y BAR 32/64; falta ECAM y mapping MMIO |
 | MSI/MSI-X | 🔲 | MEDIA | APIC |
 | Controlador xHCI | 🔲 | ALTA | PCIe + DMA |
 | USB HID | 🔲 | ALTA | xHCI; teclado y ratón |
 | USB mass storage | 🔲 | MEDIA | xHCI + block layer |
-| Block layer | 🔲 | ALTA | Discos virtio/USB |
+| Block layer | 🔄 | ALTA | Trait + registry + validación I/O; falta driver virtio-blk/USB |
 | FAT32 de lectura real | 🔲 | MEDIA | Block layer; reemplaza el stub actual |
 
 **Criterio de salida:** teclado USB y almacenamiento masivo funcionan en QEMU
 y en al menos una máquina física soportada.
+
+**Progreso:** `pci.rs` separa el acceso a config space del driver virtio-net,
+serializa CF8/CFC entre CPUs y recorre buses secundarios y funciones múltiples
+sin asignaciones dinámicas. El inventario decodifica BAR I/O, MMIO de 32 bits y
+MMIO de 64 bits, y QEMU valida seis funciones PCI durante el boot. `block.rs`
+define una interfaz sectorial común y un registry de 16 dispositivos con IDs
+estables; valida geometría, alineación, rango, modo read-only, flush y nombres
+duplicados antes de invocar un driver. Los comandos `pci` y `block` exponen
+ambos inventarios en `brsh`. El siguiente corte implementará virtio-blk y DMA
+para registrar el primer dispositivo real.
 
 ---
 
@@ -305,14 +322,14 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 35 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
-| **Líneas de código (Rust)** | ~11,000 |
-| **Unit tests** | 128 (incluye MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Módulos del kernel** | 36 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
+| **Líneas de código (Rust)** | ~16,000 |
+| **Unit tests** | 134 (incluye PCI/block, MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |
 | **Make targets de test** | 10 (test, stress-test, iso-test, release-test, boot-test, smp-test, acpi-test, security-test, integration-test, e2e-test) |
-| **Fases completadas** | 10 fases base completadas; Fases 11 y 12 avanzan en paralelo |
+| **Fases completadas** | 11 fases completadas (1–10 y 12); Fase 11 espera gate físico/release |
 
 ---
 

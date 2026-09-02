@@ -14,10 +14,20 @@ All notable changes to Brane OS are documented here. The project follows
 - Safe Local APIC/I/O APIC MMIO windows with initial boot-time page mapping.
 - MADT ISA interrupt overrides and controlled IRQ0/IRQ1 hand-off to the APIC,
   including LAPIC EOI, S3 restoration and automatic 8259 PIC fallback.
-- Deterministic SMP boot plan with APIC ID validation, BSP assignment and
-  lifecycle tracking for future AP startup.
-- Per-CPU scheduler runtime with dispatch/complete quanta, duplicate-run
-  protection, deterministic stealing accounting and an APIC dispatch probe.
+- Deterministic SMP boot plan with APIC ID validation, BSP assignment,
+  INIT/SIPI startup and explicit AP lifecycle tracking.
+- Per-CPU scheduler runtime and idle continuations for BSP/APs, bounded
+  dispatch/complete quanta, duplicate-run protection and safe stealing.
+- Real task stack/register restoration on three APs under QEMU/TCG, verified
+  by eight IPI rounds and a CPU execution mask.
+- Lost-wakeup-safe AP idle loop and post-S3 BSP context restoration test.
+- Shared PCI inventory using Configuration Mechanism #1, with bridge and
+  multifunction traversal plus I/O, 32-bit MMIO and 64-bit MMIO BAR decoding.
+- Fixed-capacity block-device registry with validated geometry, aligned and
+  bounds-checked transfers, read-only enforcement and `pci`/`block` shell
+  inspection commands.
+- Virtio discovery now consumes the shared PCI inventory and identifies both
+  legacy and modern network/block controller candidates.
 
 ## 0.1.0 — Foundation
 
@@ -32,7 +42,8 @@ All notable changes to Brane OS are documented here. The project follows
 
 ### Known limitations
 
-- APs now execute a bounded scheduler dispatch probe; isolated register/context
-  switching and sustained multicore task execution remain in Phase 12.
-- USB xHCI and persistent block storage are planned for Phase 13.
+- Live migration of a context that has already run remains disabled; tasks may
+  be balanced before dispatch or pinned by affinity.
+- USB xHCI and persistent block storage remain planned for Phase 13; the block
+  abstraction is ready, but its first `virtio-blk`/DMA backend is pending.
 - FAT32 support currently provides structural parsing rather than full reads.

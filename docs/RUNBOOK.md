@@ -19,6 +19,7 @@ El arranque actual inicializa:
 - scheduler cooperativo,
 - syscalls e IPC,
 - capacidades, auditoria y loader de modulos,
+- inventario PCI y la base de la block layer,
 - Brane Protocol, IA observadora, VFS, RamFS, TTY, shell, red, sockets y DNS.
 
 El sistema entra en `brsh` y queda esperando entrada por TTY.
@@ -41,6 +42,11 @@ rondas y respuestas. El BSP usa el mismo aislamiento cuando `brsh` ejecuta
 `yield`.
 
 Para reproducirlo con cuatro vCPU: `make smp-test`.
+
+Durante la fase 9 del arranque, `PCI Enumeration` recorre buses, funciones
+múltiples y bridges mediante CF8/CFC. A continuación, `Block layer ready`
+publica el número de dispositivos registrados. El backend de hardware sigue
+pendiente, por lo que la imagen QEMU actual muestra normalmente cero bloques.
 
 ---
 
@@ -139,12 +145,18 @@ En el log serial deberia aparecer:
 ```text
 Brane OS v0.1 — Kernel Booting
 ...
+[pci]  Enumeration complete: 6 function(s) across 1 bus(es), overflow=false
+[block] Block layer ready: 0 registered device(s)
+...
 Brane OS v0.1 — Boot Complete
 ...
 Welcome to Brane OS v0.1
 Type 'help' for available commands.
 brane>
 ```
+
+Desde `brsh`, `pci` lista las funciones y BAR descubiertos; `block` lista los
+dispositivos registrados y su geometría.
 
 ---
 

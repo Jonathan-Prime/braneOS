@@ -25,6 +25,10 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 - Validador de capacidades.
 - Safety filter (clasificación de riesgo).
 - Componentes lógicos del decision planner.
+- Enumeración PCI sobre topologías con bridges y funciones múltiples, incluido
+  el decodificado de BAR I/O, MMIO de 32 bits y MMIO de 64 bits.
+- Registro de dispositivos de bloques, geometría, transferencias alineadas,
+  límites de LBA, nombres duplicados y dispositivos de solo lectura.
 
 **Herramientas:** `cargo test`, test modules en Rust (`#[cfg(test)]`).
 
@@ -53,6 +57,7 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 - El kernel arranca sin panic.
 - Los logs seriales contienen el banner esperado.
 - ACPI descubre RSDP/FADT y publica su estado de inicialización.
+- PCI completa el inventario y la block layer publica su estado antes de `brsh`.
 - La inicialización de subsistemas ocurre en orden correcto.
 - El proceso init se crea exitosamente.
 
@@ -140,6 +145,7 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Formatting | Activo | `cargo fmt --all -- --check` |
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
+| **PCI + block layer (host)** | **Activo** | Inventario de bridges/multifunción/BAR y registro, bounds, lectura/escritura y read-only (134 tests totales) |
 | **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator, IPC y dispatcher SMP concurrente) |
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
 | **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
@@ -179,6 +185,8 @@ La validación local equivalente recomendada está documentada en
 7. ~~Agregar suspensión/reanudación ACPI S3 automatizada.~~ ✅ **Completado** (`tests/acpi/test_suspend_resume.py` + QMP `SUSPEND`/`WAKEUP` + verificación de shell post-resume)
 8. ~~Stress tests y fuzzing de componentes críticos.~~ ✅ **Completado** (`fuzz_tests` + `stress_tests`, semillas deterministas y check dedicado de CI)
 9. Release v1.0: ISO booteable + documentación API publicada.
+10. ~~Fase 13: base de block layer y enumeración PCI con pruebas host y boot.~~ ✅ **Completado** (`pci.rs`, `block.rs`, 134 tests y verificación QEMU)
+11. Fase 13: transporte `virtio-blk`, DMA y registro del primer dispositivo de bloques real.
 
 ## 7. Make targets disponibles
 

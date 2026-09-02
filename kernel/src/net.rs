@@ -144,17 +144,23 @@ pub fn init() -> bool {
     // Try to find a virtio-net device on PCI bus
     if let Some(pci_dev) = virtio::find_virtio_net() {
         crate::serial_println!(
-            "[net]  virtio-net: found at PCI {:02x}:{:02x}.{} (bar0=0x{:X}, irq={})",
-            pci_dev.bus,
-            pci_dev.device,
-            pci_dev.function,
-            pci_dev.bar0,
-            pci_dev.irq_line,
+            "[net]  virtio-net: found at PCI {:02x}:{:02x}.{} (bar0={:?}, irq={})",
+            pci_dev.address.bus,
+            pci_dev.address.device,
+            pci_dev.address.function,
+            pci_dev.bars[0],
+            pci_dev.interrupt_line,
         );
 
         // Initialize the virtio device
         let mut vdev = virtio::VIRTIO_NET.lock();
-        vdev.init(pci_dev);
+        if let Err(error) = vdev.init(pci_dev) {
+            crate::serial_println!(
+                "[net]  virtio-net transport unsupported ({:?}); networking disabled.",
+                error
+            );
+            return false;
+        }
 
         let mut mac_buf = [0u8; 17];
         let mac_str = vdev.mac_str(&mut mac_buf);
