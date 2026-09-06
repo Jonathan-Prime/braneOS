@@ -1,13 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
   <title id="title">Brane OS logo</title>
-  <desc id="desc">A cyan and indigo membrane symbol surrounding a central node.</desc>
-  <rect width="320" height="320" rx="64" fill="#0F172A"/>
-  <path d="M160 48C92 48 48 92 48 160s44 112 112 112 112-44 112-112S228 48 160 48Z" fill="none" stroke="#22D3EE" stroke-width="14"/>
-  <path d="M160 86c-45 0-74 29-74 74s29 74 74 74 74-29 74-74-29-74-74-74Z" fill="none" stroke="#818CF8" stroke-width="12"/>
-  <path d="m160 122 38 38-38 38-38-38 38-38Z" fill="#22D3EE"/>
-  <circle cx="160" cy="160" r="12" fill="#0F172A"/>
-  <circle cx="160" cy="48" r="9" fill="#22D3EE"/>
-  <circle cx="272" cy="160" r="9" fill="#818CF8"/>
-  <circle cx="160" cy="272" r="9" fill="#22D3EE"/>
-  <circle cx="48" cy="160" r="9" fill="#818CF8"/>
+  <desc id="desc">An abstract luminous membrane knot in cyan, blue, and violet.</desc>
+  <defs>
+    <linearGradient id="cyanRibbon" x1="55" y1="65" x2="260" y2="255" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#72F6FF"/>
+      <stop offset="0.48" stop-color="#168BFF"/>
+      <stop offset="1" stop-color="#6148E8"/>
+    </linearGradient>
+    <linearGradient id="violetRibbon" x1="260" y1="75" x2="70" y2="255" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4BBAFF"/>
+      <stop offset="0.52" stop-color="#7B4FE8"/>
+      <stop offset="1" stop-color="#FF77C8"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="320" height="320" rx="64" fill="#030712"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M77 98C119 47 185 45 231 87c36 33 34 78-5 108-34 26-69 26-104-3-31-26-52-65-35-94 14-24 43-28 72-10 35 22 65 59 57 94-8 37-48 70-91 62-48-9-76-55-67-101 4-19 10-33 19-45Z" stroke="url(#cyanRibbon)" stroke-width="25"/>
+    <path d="M242 89c-28-32-73-37-108-16-32 19-41 51-22 76 21 27 57 43 87 58 27 14 34 39 17 61-23 31-76 36-119 14-43-22-69-66-56-106 10-31 36-50 69-52 38-2 73 20 90 53 19 36 11 72-16 97" stroke="url(#violetRibbon)" stroke-width="19"/>
+  </g>
+  <path d="M91 101c23-24 48-31 70-24" fill="none" stroke="#B7FFFF" stroke-width="4" stroke-linecap="round" opacity=".85"/>
 </svg>
