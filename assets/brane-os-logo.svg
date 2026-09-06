@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Brane OS logo</title>
+  <desc id="desc">A cyan and indigo membrane symbol surrounding a central node.</desc>
+  <rect width="320" height="320" rx="64" fill="#0F172A"/>
+  <path d="M160 48C92 48 48 92 48 160s44 112 112 112 112-44 112-112S228 48 160 48Z" fill="none" stroke="#22D3EE" stroke-width="14"/>
+  <path d="M160 86c-45 0-74 29-74 74s29 74 74 74 74-29 74-74-29-74-74-74Z" fill="none" stroke="#818CF8" stroke-width="12"/>
+  <path d="m160 122 38 38-38 38-38-38 38-38Z" fill="#22D3EE"/>
+  <circle cx="160" cy="160" r="12" fill="#0F172A"/>
+  <circle cx="160" cy="48" r="9" fill="#22D3EE"/>
+  <circle cx="272" cy="160" r="9" fill="#818CF8"/>
+  <circle cx="160" cy="272" r="9" fill="#22D3EE"/>
+  <circle cx="48" cy="160" r="9" fill="#818CF8"/>
+</svg>

@@ -1,5 +1,9 @@
 # Brane OS
 
+<p align="center">
+	<img src="./assets/brane-os-logo.svg" alt="Logo de Brane OS" width="180" />
+</p>
+
 > **Brane OS** is a custom, modular, secure, and extensible operating system designed to integrate an Artificial Intelligence layer controlled by policies, capabilities, and strict auditing.
 
 | Status | Version | Architecture | Primary Language |
