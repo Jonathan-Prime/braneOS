@@ -26,6 +26,7 @@ pub mod brane_discovery;
 pub mod brane_session;
 pub mod context;
 pub mod crypto;
+pub mod dma;
 pub mod dns;
 pub mod fat32;
 pub mod framebuffer;
@@ -49,6 +50,7 @@ pub mod tty;
 pub mod usermode;
 pub mod vfs;
 pub mod virtio;
+pub mod virtio_block;
 
 #[cfg(test)]
 mod tests;

@@ -1,4 +1,6 @@
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use std::process::Command;
 
 fn main() {
@@ -36,6 +38,15 @@ fn main() {
 
     println!("Launching QEMU...");
 
+    let block_path = format!("{}/brane_os-block.img", out_dir);
+    let mut block_image = File::create(&block_path).expect("failed to create virtio block image");
+    block_image
+        .set_len(1024 * 1024)
+        .expect("failed to size virtio block image");
+    block_image
+        .write_all(b"BRANE-BLOCK-TEST")
+        .expect("failed to seed virtio block image");
+
     let mut qemu = Command::new("qemu-system-x86_64");
 
     // Select acceleration based on OS
@@ -65,6 +76,14 @@ fn main() {
     // Networking
     qemu.arg("-netdev").arg("user,id=n0");
     qemu.arg("-device").arg("virtio-net-pci,netdev=n0");
+
+    // Dedicated read-only disk for the legacy virtio-blk transport.
+    qemu.arg("-drive").arg(format!(
+        "if=none,format=raw,readonly=on,file={},id=braneblk",
+        block_path
+    ));
+    qemu.arg("-device")
+        .arg("virtio-blk-pci,drive=braneblk,disable-modern=on");
 
     let mut child = qemu
         .spawn()

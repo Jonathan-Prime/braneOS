@@ -18,7 +18,7 @@
  ─────────────────────────────────────────────────────┼─────────────────────────────────────────────────▶
 ```
 
-**Foco actual:** Fase 13 — transporte virtio-blk, DMA y primer dispositivo de bloques real.
+**Foco actual:** Fase 13 — lecturas FAT32 reales sobre la block layer y preparación xHCI.
 
 ### Disciplina de cambios por fase
 
@@ -280,21 +280,29 @@ físico se mantiene en la matriz de release de la Fase 11.
 | Controlador xHCI | 🔲 | ALTA | PCIe + DMA |
 | USB HID | 🔲 | ALTA | xHCI; teclado y ratón |
 | USB mass storage | 🔲 | MEDIA | xHCI + block layer |
-| Block layer | 🔄 | ALTA | Trait + registry + validación I/O; falta driver virtio-blk/USB |
+| Block layer | ✅ | ALTA | Trait, registry, validación I/O y primer backend real |
+| DMA + virtio-blk legacy | ✅ | ALTA | Frames contiguos <4 GiB, virtqueue y lectura sectorial en QEMU |
 | FAT32 de lectura real | 🔲 | MEDIA | Block layer; reemplaza el stub actual |
 
 **Criterio de salida:** teclado USB y almacenamiento masivo funcionan en QEMU
 y en al menos una máquina física soportada.
 
-**Progreso:** `pci.rs` separa el acceso a config space del driver virtio-net,
+**Primer corte completado:** `pci.rs` separa el acceso a config space del driver virtio-net,
 serializa CF8/CFC entre CPUs y recorre buses secundarios y funciones múltiples
 sin asignaciones dinámicas. El inventario decodifica BAR I/O, MMIO de 32 bits y
-MMIO de 64 bits, y QEMU valida seis funciones PCI durante el boot. `block.rs`
+MMIO de 64 bits, y el boot test con disco valida siete funciones PCI. `block.rs`
 define una interfaz sectorial común y un registry de 16 dispositivos con IDs
 estables; valida geometría, alineación, rango, modo read-only, flush y nombres
 duplicados antes de invocar un driver. Los comandos `pci` y `block` exponen
-ambos inventarios en `brsh`. El siguiente corte implementará virtio-blk y DMA
-para registrar el primer dispositivo real.
+ambos inventarios en `brsh`.
+
+**Segundo corte completado:** `dma.rs` reserva regiones físicamente contiguas y
+alineadas bajo 4 GiB. `virtio_block.rs` negocia el transporte legacy, habilita
+bus mastering PCI, configura una virtqueue protegida por CPU y ejecuta I/O
+sectorial mediante un bounce buffer. El boot test conecta un disco read-only de
+1 MiB, registra `virtio-blk0` con 2048 sectores y exige una lectura correcta de
+LBA0; la misma ruta supera QEMU/TCG con 1 y 4 vCPU. El siguiente corte conecta
+el parser FAT32 a este dispositivo y recorre directorios/archivos reales.
 
 ---
 
@@ -322,9 +330,9 @@ companion y compartir un recurso bajo control de capabilities y auditoría.
 
 | Métrica | Valor |
 |---------|-------|
-| **Módulos del kernel** | 36 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
-| **Líneas de código (Rust)** | ~16,000 |
-| **Unit tests** | 134 (incluye PCI/block, MADT/APIC/SMP, integration, stress y mutation-fuzz) |
+| **Módulos del kernel** | 38 archivos de módulo (excluye `lib.rs`, `main.rs`, `tests.rs`) |
+| **Líneas de código (Rust)** | ~17,000 |
+| **Unit tests** | 139 (incluye DMA/virtio-blk, PCI/block, MADT/APIC/SMP, integration, stress y mutation-fuzz) |
 | **Syscalls definidas** | 28 (incluye Kill, SigAction, SigReturn, SigProcMask) |
 | **Harnesses de test Python** | 8 (boot + ACPI S3 + 2 security + 2 integration + 2 e2e) |
 | **CI checks** | 11 (build, fmt, clippy, unit, stress/fuzz, release ISO, boot, ACPI S3, security, integration, E2E) |

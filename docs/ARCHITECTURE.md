@@ -653,8 +653,9 @@ pub trait Driver: Send + Sync {
 | Serial (UART 16550) | ✅ Implementado | 4 | Logging temprano, COM1 |
 | Timer (PIT / APIC) | ✅ Implementado | 0/32 | Ticks y EOI LAPIC/PIC |
 | Keyboard (PS/2) | ✅ Implementado | 1/33 | Entrada TTY básica |
-| Block layer | 🔄 Base integrada | — | Registry y dispatch sectorial; falta transporte físico |
-| Disk (virtio-blk/USB) | 🔲 Pendiente | — | Primer backend del block layer |
+| Block layer | ✅ Implementado | — | Registry, validación y dispatch sectorial |
+| Disk (virtio-blk) | ✅ Legacy | PCI | Virtqueue por polling y DMA bajo 4 GiB |
+| Disk (USB) | 🔲 Pendiente | — | Requiere xHCI y USB mass storage |
 | Network (virtio-net) | ✅ Base integrada | PCI | Discovery compartido + transporte legacy I/O |
 | USB | 🔲 Futuro | — | Para dispositivos externos |
 | Bluetooth | 🔲 Futuro | — | Para mobile companion |
@@ -693,6 +694,21 @@ operación al driver hasta verificar geometría, múltiplos del tamaño de bloqu
 overflow de LBA, límites y política read-only. Los backends sincronizan su
 controlador internamente, lo que permite llamadas desde CPUs diferentes sin
 exponer detalles de virtqueue, USB o DMA al VFS/FAT32.
+
+### 7.5 DMA y virtio-blk
+
+`dma.rs` amplía el frame allocator con reservas contiguas, alineadas y limitadas
+a direcciones alcanzables por PCI legacy. Cada `DmaRegion` conserva su base
+física para el dispositivo y su dirección en el direct map para el kernel.
+
+`virtio_block.rs` implementa el transporte virtio-blk transitional por BAR I/O.
+Habilita `IO_SPACE` y `BUS_MASTER`, negocia read-only/flush y configura la cola
+PFN con la separación de 4 KiB exigida entre los anillos available y used. Cada
+transferencia encadena header, bounce buffer de 512 bytes y status; el driver
+publica una solicitud, notifica la queue 0 y espera de forma acotada su entrada
+used. Un mutex por dispositivo serializa la virtqueue sin bloquear el inventario
+PCI. MSI/MSI-X, colas múltiples y el transporte virtio 1.0 moderno permanecen
+como incrementos posteriores.
 
 ---
 

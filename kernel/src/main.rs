@@ -42,7 +42,7 @@ use brane_os_kernel::serial_println;
 use brane_os_kernel::{
     acpi, ai, apic, audit, block, brane, dns, framebuffer, gdt, ipc, memory, module_loader, net,
     pci, process, ramfs, sched, security, serial, shell, smp, socket, syscall, tty, usermode, vfs,
-    virtio,
+    virtio, virtio_block,
 };
 
 // -----------------------------------------------------------------------
@@ -702,19 +702,61 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         pci_buses,
         pci_overflowed,
     );
+    let mut boot_block_id = None;
+    if let Some(controller) = virtio::find_virtio_block() {
+        match virtio_block::init(controller, &mut frame_alloc, phys_offset) {
+            Ok(device) => {
+                let registration = {
+                    let mut registry = block::BLOCK_REGISTRY.lock();
+                    registry.register(device)
+                };
+                match registration {
+                    Ok(id) => {
+                        boot_block_id = Some(id);
+                        let info = block::BLOCK_REGISTRY.lock().info(id).unwrap();
+                        serial_println!(
+                            "[block] virtio-blk0 ready: id={}, sectors={}, bytes={}, read_only={}",
+                            id,
+                            info.block_count,
+                            info.capacity_bytes().unwrap_or(0),
+                            info.read_only,
+                        );
+                    }
+                    Err(error) => {
+                        serial_println!("[block] virtio-blk registration failed: {:?}", error);
+                    }
+                }
+            }
+            Err(error) => {
+                serial_println!(
+                    "[block] virtio-blk initialization failed at PCI {:02x}:{:02x}.{}: {:?}",
+                    controller.address.bus,
+                    controller.address.device,
+                    controller.address.function,
+                    error,
+                );
+            }
+        }
+    } else {
+        serial_println!("[block] No virtio-blk controller found.");
+    }
     let registered_blocks = block::BLOCK_REGISTRY.lock().len();
     serial_println!(
         "[block] Block layer ready: {} registered device(s).",
         registered_blocks
     );
-    if let Some(controller) = virtio::find_virtio_block() {
-        serial_println!(
-            "[block] virtio-blk controller discovered at PCI {:02x}:{:02x}.{}; transport pending.",
-            controller.address.bus,
-            controller.address.device,
-            controller.address.function,
-        );
+    if let Some(id) = boot_block_id {
+        let mut sector = [0u8; block::MIN_BLOCK_SIZE as usize];
+        match block::BLOCK_REGISTRY.lock().read(id, 0, &mut sector) {
+            Ok(()) => {
+                serial_println!("[block] LBA0 read probe: ok");
+            }
+            Err(error) => {
+                serial_println!("[block] LBA0 read probe failed: {:?}", error);
+            }
+        }
     }
+    memory::frame_allocator::snapshot_free_count(&frame_alloc);
     let _net_available = net::init();
     dns::init();
     {

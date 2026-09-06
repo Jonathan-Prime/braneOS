@@ -50,7 +50,9 @@ REQUIRED_STRINGS = [
     "Brane OS",   # kernel banner
     "[acpi] ACPI subsystem initialized",  # Phase 10 power management
     "[pci]  Enumeration complete",  # Phase 13 shared hardware inventory
-    "[block] Block layer ready",  # Phase 13 storage abstraction
+    "[block] virtio-blk0 ready",  # Phase 13 hardware-backed block device
+    "[block] Block layer ready: 1 registered device(s)",
+    "[block] LBA0 read probe: ok",  # synchronous DMA/virtqueue transfer
     "brane>",     # brsh prompt (signals full userland init)
 ]
 
@@ -222,6 +224,7 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
             f"[sched] Multicore task execution: expected={cpus - 1}, observed={cpus - 1}",
         ])
     firmware_vars: Path | None = None
+    block_path: Path | None = None
     if media_type == "iso":
         ovmf = find_ovmf()
         if ovmf is None:
@@ -238,6 +241,18 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
         ])
     else:
         cmd.extend(["-drive", f"format=raw,file={media_path}"])
+
+    # A dedicated read-only disk keeps the boot image separate from the device
+    # under test. disable-modern forces the legacy I/O/PFN transport currently
+    # implemented by the Phase 13 driver.
+    with tempfile.NamedTemporaryFile(prefix="brane-virtio-blk-", suffix=".img", delete=False) as disk:
+        block_path = Path(disk.name)
+        disk.write(b"BRANE-BLOCK-TEST")
+        disk.truncate(1024 * 1024)
+    cmd.extend([
+        "-drive", f"if=none,format=raw,readonly=on,file={block_path},id=braneblk",
+        "-device", "virtio-blk-pci,drive=braneblk,disable-modern=on",
+    ])
     cmd.extend([
         "-serial", "stdio",
         "-nographic",         # no display window — pure serial I/O
@@ -265,6 +280,8 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
         error(f"{QEMU_BIN} not found. Install QEMU and ensure it is in PATH.")
         if firmware_vars:
             firmware_vars.unlink(missing_ok=True)
+        if block_path:
+            block_path.unlink(missing_ok=True)
         return 2
 
     def reader():
@@ -330,6 +347,8 @@ def run_qemu_test(media_path: Path, timeout: int, media_type: str = "disk", cpus
     t.join(timeout=3)
     if firmware_vars:
         firmware_vars.unlink(missing_ok=True)
+    if block_path:
+        block_path.unlink(missing_ok=True)
 
     # ── Evaluate result ──────────────────────────────────────────────────
     print()

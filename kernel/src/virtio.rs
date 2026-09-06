@@ -23,6 +23,7 @@ const VIRTIO_NET_MODERN_DEVICE_ID: u16 = 0x1041;
 const VIRTIO_BLOCK_TRANSITIONAL_DEVICE_ID: u16 = 0x1001;
 const VIRTIO_BLOCK_MODERN_DEVICE_ID: u16 = 0x1042;
 const VIRTIO_NET_SUBSYSTEM: u16 = 1;
+const VIRTIO_BLOCK_SUBSYSTEM: u16 = 2;
 
 /// Find a virtio-net function in the shared PCI inventory.
 pub fn find_virtio_net() -> Option<PciDevice> {
@@ -34,15 +35,13 @@ pub fn find_virtio_net() -> Option<PciDevice> {
     })
 }
 
-/// Find a virtio block controller. Transport initialization lands in the next
-/// Phase 13 slice; discovery is shared with every other PCI driver now.
+/// Find a virtio block controller in the shared PCI inventory.
 pub fn find_virtio_block() -> Option<PciDevice> {
     crate::pci::find_device(|device| {
         device.vendor_id == VIRTIO_VENDOR_ID
-            && matches!(
-                device.device_id,
-                VIRTIO_BLOCK_TRANSITIONAL_DEVICE_ID | VIRTIO_BLOCK_MODERN_DEVICE_ID
-            )
+            && (device.device_id == VIRTIO_BLOCK_MODERN_DEVICE_ID
+                || (device.device_id == VIRTIO_BLOCK_TRANSITIONAL_DEVICE_ID
+                    && device.subsystem_id == VIRTIO_BLOCK_SUBSYSTEM))
     })
 }
 
@@ -65,7 +64,7 @@ pub fn legacy_io_base(device: PciDevice) -> Result<u16, VirtioInitError> {
 // -----------------------------------------------------------------------
 
 /// Offsets from BAR0 for virtio legacy PCI device
-mod virtio_reg {
+pub(crate) mod virtio_reg {
     pub const DEVICE_FEATURES: u16 = 0x00; // 4 bytes
     pub const GUEST_FEATURES: u16 = 0x04; // 4 bytes
     pub const QUEUE_ADDRESS: u16 = 0x08; // 4 bytes
@@ -79,7 +78,7 @@ mod virtio_reg {
 }
 
 /// Virtio device status flags
-mod status {
+pub(crate) mod status {
     pub const ACKNOWLEDGE: u8 = 1;
     pub const DRIVER: u8 = 2;
     pub const DRIVER_OK: u8 = 4;

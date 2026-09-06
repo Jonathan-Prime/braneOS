@@ -28,6 +28,11 @@ All notable changes to Brane OS are documented here. The project follows
   inspection commands.
 - Virtio discovery now consumes the shared PCI inventory and identifies both
   legacy and modern network/block controller candidates.
+- Physically contiguous DMA regions below 4 GiB, including aligned allocation
+  support in the boot frame allocator.
+- Synchronous legacy virtio-blk driver with PCI bus mastering, feature
+  negotiation, a polling virtqueue, 512-byte bounce buffer and block-registry
+  integration. QEMU boot tests verify a real LBA0 transfer with 1 and 4 vCPUs.
 
 ## 0.1.0 — Foundation
 
@@ -44,6 +49,6 @@ All notable changes to Brane OS are documented here. The project follows
 
 - Live migration of a context that has already run remains disabled; tasks may
   be balanced before dispatch or pinned by affinity.
-- USB xHCI and persistent block storage remain planned for Phase 13; the block
-  abstraction is ready, but its first `virtio-blk`/DMA backend is pending.
+- USB xHCI, USB mass storage and modern virtio PCI transport remain planned for
+  Phase 13; the current virtio-blk backend uses the transitional legacy path.
 - FAT32 support currently provides structural parsing rather than full reads.

@@ -19,7 +19,7 @@ El arranque actual inicializa:
 - scheduler cooperativo,
 - syscalls e IPC,
 - capacidades, auditoria y loader de modulos,
-- inventario PCI y la base de la block layer,
+- inventario PCI, block layer y un backend virtio-blk legacy,
 - Brane Protocol, IA observadora, VFS, RamFS, TTY, shell, red, sockets y DNS.
 
 El sistema entra en `brsh` y queda esperando entrada por TTY.
@@ -44,9 +44,9 @@ rondas y respuestas. El BSP usa el mismo aislamiento cuando `brsh` ejecuta
 Para reproducirlo con cuatro vCPU: `make smp-test`.
 
 Durante la fase 9 del arranque, `PCI Enumeration` recorre buses, funciones
-múltiples y bridges mediante CF8/CFC. A continuación, `Block layer ready`
-publica el número de dispositivos registrados. El backend de hardware sigue
-pendiente, por lo que la imagen QEMU actual muestra normalmente cero bloques.
+múltiples y bridges mediante CF8/CFC. El runner y los boot tests conectan un
+disco virtio read-only de 1 MiB; el kernel reserva la virtqueue en DMA contiguo,
+registra `virtio-blk0` y completa una lectura de LBA0 antes de iniciar `brsh`.
 
 ---
 
@@ -145,8 +145,10 @@ En el log serial deberia aparecer:
 ```text
 Brane OS v0.1 — Kernel Booting
 ...
-[pci]  Enumeration complete: 6 function(s) across 1 bus(es), overflow=false
-[block] Block layer ready: 0 registered device(s)
+[pci]  Enumeration complete: 7 function(s) across 1 bus(es), overflow=false
+[block] virtio-blk0 ready: id=1, sectors=2048, bytes=1048576, read_only=true
+[block] Block layer ready: 1 registered device(s).
+[block] LBA0 read probe: ok
 ...
 Brane OS v0.1 — Boot Complete
 ...
@@ -183,6 +185,10 @@ prompt `brane>` aunque no termine con salto de línea.
 
 `make release-test` valida además los artefactos versionados y arranca la ISO
 UEFI con OVMF.
+
+Los targets `boot-test`, `smp-test` e `iso-test` crean un disco temporal
+independiente del medio de arranque y fuerzan `disable-modern=on`. Además del
+prompt, exigen el registro de `virtio-blk0` y una transferencia DMA completa.
 
 `make stress-test` usa semillas fijas para mutar los parsers FAT32, BDP y Brane
 Session, comparar el frame allocator con un modelo de referencia y saturar las

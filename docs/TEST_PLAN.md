@@ -29,6 +29,8 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
   el decodificado de BAR I/O, MMIO de 32 bits y MMIO de 64 bits.
 - Registro de dispositivos de bloques, geometría, transferencias alineadas,
   límites de LBA, nombres duplicados y dispositivos de solo lectura.
+- Reserva DMA contigua con alineación/límite físico y layout de virtqueue
+  legacy, incluidas cadenas de descriptores de lectura y escritura.
 
 **Herramientas:** `cargo test`, test modules en Rust (`#[cfg(test)]`).
 
@@ -57,7 +59,7 @@ Brane OS utiliza una estrategia de testing multinivel que cubre desde unidades a
 - El kernel arranca sin panic.
 - Los logs seriales contienen el banner esperado.
 - ACPI descubre RSDP/FADT y publica su estado de inicialización.
-- PCI completa el inventario y la block layer publica su estado antes de `brsh`.
+- PCI completa el inventario, registra `virtio-blk0` y lee LBA0 antes de `brsh`.
 - La inicialización de subsistemas ocurre en orden correcto.
 - El proceso init se crea exitosamente.
 
@@ -145,10 +147,10 @@ GitHub Actions valida en cada `push` y `pull_request` hacia `main`:
 | Formatting | Activo | `cargo fmt --all -- --check` |
 | Clippy | Activo | Kernel bare-metal + runner host con `-D warnings` |
 | Kernel unit tests | Activo | `cargo test -p brane_os_kernel --lib` |
-| **PCI + block layer (host)** | **Activo** | Inventario de bridges/multifunción/BAR y registro, bounds, lectura/escritura y read-only (134 tests totales) |
+| **PCI + block + DMA (host)** | **Activo** | Inventario, bus mastering, registro, bounds, DMA contiguo y virtqueue (139 tests totales) |
 | **Stress y mutation-fuzz** | **Activo** | `make stress-test` (parsers, allocator, IPC y dispatcher SMP concurrente) |
 | **Release artifact (ISO UEFI)** | **Activo** | `make iso-test VERSION=ci` (ISO, checksum y boot con OVMF) |
-| **Boot test (QEMU)** | **Activo** | `python3 tests/boot/test_boot.py` (kernel release, timeout 60 s, TCG) |
+| **Boot test (QEMU)** | **Activo** | Kernel release + disco virtio legacy read-only; exige registro y lectura real de LBA0 |
 | **SMP/AP startup test (QEMU)** | **Activo** | `make smp-test` (4 vCPU, INIT/SIPI, estado per-CPU, 8 rondas acotadas y workers reales en CPU1–CPU3) |
 | **SMP run-queue + dispatcher model (host)** | **Activo** | `cargo test -p brane_os_kernel --lib sched::multicore_tests` (balanceo, steal, ownership y retorno al idle entre quanta) |
 | **SMP per-CPU timer state (host)** | **Activo** | `cargo test -p brane_os_kernel --lib cpu_local_scheduler_tracks_timer_without_touching_bsp` (slot, ticks y aislamiento del cursor BSP) |
@@ -186,7 +188,8 @@ La validación local equivalente recomendada está documentada en
 8. ~~Stress tests y fuzzing de componentes críticos.~~ ✅ **Completado** (`fuzz_tests` + `stress_tests`, semillas deterministas y check dedicado de CI)
 9. Release v1.0: ISO booteable + documentación API publicada.
 10. ~~Fase 13: base de block layer y enumeración PCI con pruebas host y boot.~~ ✅ **Completado** (`pci.rs`, `block.rs`, 134 tests y verificación QEMU)
-11. Fase 13: transporte `virtio-blk`, DMA y registro del primer dispositivo de bloques real.
+11. ~~Fase 13: transporte `virtio-blk`, DMA y primer dispositivo real.~~ ✅ **Completado** (139 tests + boot QEMU 1/4 vCPU + lectura LBA0)
+12. Fase 13: conectar FAT32 a la block layer y leer directorios/archivos reales.
 
 ## 7. Make targets disponibles
 

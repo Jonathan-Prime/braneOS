@@ -1,0 +1,58 @@
+name: Parallels Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "GitHub Release version without the v prefix"
+        required: true
+        default: "1.0.0-rc1"
+      vm_name:
+        description: "Dedicated Parallels VM name"
+        required: true
+        default: "Brane OS"
+      start_vm:
+        description: "Start the VM after attaching the ISO"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parallels-${{ inputs.vm_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy release to Parallels
+    runs-on: [self-hosted, macOS, parallels]
+    environment: parallels-local
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          mkdir -p dist
+          gh release download "v${VERSION}" \
+            --pattern "brane_os_v${VERSION}.iso" \
+            --pattern "brane_os_v${VERSION}.iso.sha256" \
+            --dir dist
+
+      - name: Verify checksum
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: dist
+        run: shasum -a 256 -c "brane_os_v${VERSION}.iso.sha256"
+
+      - name: Deploy dedicated VM
+        env:
+          VERSION: ${{ inputs.version }}
+          PARALLELS_VM_NAME: ${{ inputs.vm_name }}
+          PARALLELS_START: ${{ inputs.start_vm && '1' || '0' }}
+        run: make parallels-deploy VERSION="${VERSION}"

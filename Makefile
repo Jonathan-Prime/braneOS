@@ -13,7 +13,7 @@ BUILD_FLAGS    := -Z build-std=core,compiler_builtins,alloc \
 
 .PHONY: build build-release run run-release test fmt clippy \
         stress-test test-image boot-test smp-test acpi-test security-test integration-test e2e-test test-all \
-        docs iso iso-test release-test release clean help
+        docs iso iso-test release-test release parallels-deploy parallels-start parallels-stop parallels-status clean help
 
 # --- Build -------------------------------------------------------------------
 
@@ -107,6 +107,20 @@ release: iso ## Full release: ISO + SHA256 checksum + tar.gz archive
 	@echo ""
 	@echo "Release artifacts in dist/:"
 	@ls -lh dist/
+
+# --- Parallels Desktop -------------------------------------------------------
+
+parallels-deploy: iso ## Create/update the dedicated Parallels VM with the ISO
+	VERSION=$(VERSION) ./tools/parallels_deploy.sh deploy
+
+parallels-start: ## Start the dedicated Parallels VM
+	./tools/parallels_deploy.sh start
+
+parallels-stop: ## Request ACPI shutdown for the dedicated Parallels VM
+	./tools/parallels_deploy.sh stop
+
+parallels-status: ## Show detailed status for the dedicated Parallels VM
+	./tools/parallels_deploy.sh status
 
 # --- Help --------------------------------------------------------------------
 

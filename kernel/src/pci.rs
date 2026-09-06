@@ -18,6 +18,9 @@ const INVALID_VENDOR_ID: u16 = 0xFFFF;
 
 pub const MAX_PCI_DEVICES: usize = 256;
 pub const MAX_PCI_BARS: usize = 6;
+pub const COMMAND_IO_SPACE: u16 = 1 << 0;
+pub const COMMAND_MEMORY_SPACE: u16 = 1 << 1;
+pub const COMMAND_BUS_MASTER: u16 = 1 << 2;
 
 static CONFIG_ACCESS_LOCK: Mutex<()> = Mutex::new(());
 
@@ -227,6 +230,25 @@ impl PciConfigAccess for LegacyConfigAccess {
             u32::MAX
         }
     }
+}
+
+/// Enable legacy port decoding and DMA for a discovered PCI function.
+///
+/// Only the 16-bit command register is written, avoiding write-one-to-clear
+/// status bits in the upper half of the configuration dword.
+pub fn enable_legacy_io_bus_mastering(device: PciDevice) -> u16 {
+    let command = device.command | COMMAND_IO_SPACE | COMMAND_BUS_MASTER;
+    #[cfg(target_os = "none")]
+    {
+        let _guard = CONFIG_ACCESS_LOCK.lock();
+        unsafe {
+            let mut address_port = Port::<u32>::new(CONFIG_ADDRESS_PORT);
+            let mut command_port = Port::<u16>::new(CONFIG_DATA_PORT);
+            address_port.write(device.address.config_address(0x04));
+            command_port.write(command);
+        }
+    }
+    command
 }
 
 fn read_u16(access: &impl PciConfigAccess, address: PciAddress, offset: u8) -> u16 {
@@ -544,5 +566,16 @@ mod tests {
             }
         );
         assert_eq!(discovered.bars[3], PciBar::UpperHalf64);
+    }
+
+    #[test]
+    fn enables_io_decoding_and_bus_mastering_without_dropping_command_bits() {
+        let mut device = PciDevice::EMPTY;
+        device.command = COMMAND_MEMORY_SPACE | (1 << 6);
+
+        assert_eq!(
+            enable_legacy_io_bus_mastering(device),
+            COMMAND_MEMORY_SPACE | COMMAND_IO_SPACE | COMMAND_BUS_MASTER | (1 << 6)
+        );
     }
 }

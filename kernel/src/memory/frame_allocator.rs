@@ -121,6 +121,44 @@ impl BitmapFrameAllocator {
         None // Out of memory
     }
 
+    /// Allocate a physically contiguous run below `limit`.
+    ///
+    /// `alignment_frames` expresses alignment in 4 KiB frames and must be a
+    /// non-zero power of two. This is intended for DMA rings whose legacy
+    /// hardware interface accepts one physical base rather than a scatter list.
+    pub fn allocate_contiguous_below(
+        &mut self,
+        count: usize,
+        limit: u64,
+        alignment_frames: usize,
+    ) -> Option<u64> {
+        if count == 0 || !alignment_frames.is_power_of_two() {
+            return None;
+        }
+
+        let limit_frames = ((limit as usize) / FRAME_SIZE).min(MAX_FRAMES);
+        if count > limit_frames {
+            return None;
+        }
+
+        for start in 0..=limit_frames - count {
+            if !start.is_multiple_of(alignment_frames) {
+                continue;
+            }
+            if (start..start + count).any(|frame| self.is_used(frame)) {
+                continue;
+            }
+
+            for frame in start..start + count {
+                self.set_used(frame);
+            }
+            self.free_frames = self.free_frames.saturating_sub(count);
+            return Some((start * FRAME_SIZE) as u64);
+        }
+
+        None
+    }
+
     /// Deallocate a physical frame by its address.
     pub fn deallocate(&mut self, addr: u64) {
         let frame = (addr as usize) / FRAME_SIZE;

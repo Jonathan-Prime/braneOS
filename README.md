@@ -1,10 +1,20 @@
-# Brane OS
+<p align="center">
+	<img src="./assets/brane-os-mark.png" alt="Brane OS multidimensional membrane logo" width="240" />
+</p>
+
+<h1 align="center">Brane OS</h1>
 
 <p align="center">
-	<img src="./assets/brane-os-logo.svg" alt="Logo de Brane OS" width="180" />
+	<strong>The multidimensional operating system</strong>
+</p>
+
+<p align="center">
+	<sub>Modular · Secure · Adaptive · AI-native</sub>
 </p>
 
 > **Brane OS** is a custom, modular, secure, and extensible operating system designed to integrate an Artificial Intelligence layer controlled by policies, capabilities, and strict auditing.
+
+The logo represents interconnected membranes forming a single adaptive system. Brand assets and usage guidance are available in [`assets/`](assets/README.md).
 
 | Status | Version | Architecture | Primary Language |
 |--------|---------|--------------|------------------|

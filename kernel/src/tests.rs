@@ -109,6 +109,23 @@ mod frame_allocator_tests {
     }
 
     #[test]
+    fn contiguous_allocation_honors_gaps_alignment_and_limit() {
+        let _guard = lock_tests();
+        let mut alloc = BitmapFrameAllocator::new();
+        alloc.mark_region_free(4096, 4096 * 12);
+        alloc.mark_region_used(4096 * 4, 4096 * 5);
+
+        assert_eq!(
+            alloc.allocate_contiguous_below(3, 4096 * 12, 2),
+            Some(4096 * 6)
+        );
+        assert_eq!(alloc.free_count(), 7);
+        assert_eq!(alloc.allocate_contiguous_below(4, 4096 * 6, 1), None);
+        assert_eq!(alloc.allocate_contiguous_below(0, 4096 * 12, 1), None);
+        assert_eq!(alloc.allocate_contiguous_below(1, 4096 * 12, 3), None);
+    }
+
+    #[test]
     fn deallocate_returns_frame() {
         let _guard = lock_tests();
         let mut alloc = BitmapFrameAllocator::new();
